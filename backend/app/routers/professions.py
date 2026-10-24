@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..config import get_settings
 from ..database import get_db
 from ..models import Item, MaterialSource, Profession, Recipe, RecipeMaterial
 from ..schemas import MaterialOut, ProfessionOut, RecipeOut
@@ -51,8 +52,6 @@ def list_recipes(
 
     prices: dict[int, int] = {}
     if server_id:
-        from ..config import get_settings
-
         prices = effective_prices(db, server_id, price_mode, get_settings().median_window_days)
 
     recipes = (

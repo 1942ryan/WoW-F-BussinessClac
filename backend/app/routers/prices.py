@@ -8,8 +8,10 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..config import get_settings
 from ..database import get_db
 from ..models import Item, PriceBatch, PriceRecord, Server
+from ..services.calc import effective_prices
 from ..schemas import (
     EffectivePriceOut,
     ImportSummaryOut,
@@ -156,9 +158,6 @@ def effective_prices_list(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> list[EffectivePriceOut]:
-    from ..config import get_settings
-    from ..services.calc import effective_prices
-
     prices = effective_prices(db, server_id, mode, get_settings().median_window_days)
     counts = dict(
         db.execute(
@@ -198,9 +197,6 @@ def effective_prices_list(
 def item_price_detail(
     item_id: int, server_id: int, db: Session = Depends(get_db)
 ) -> ItemPriceOut:
-    from ..config import get_settings
-    from ..services.calc import effective_prices
-
     item = db.get(Item, item_id)
     if item is None:
         raise HTTPException(404, "物品不存在")

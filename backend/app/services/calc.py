@@ -134,7 +134,6 @@ def _load_recipes(
     profession: Profession,
     prices: dict[int, int],
     params: CalcIn,
-    settings,
 ) -> tuple[list[RecipeView], list[dict]]:
     """加载专业配方并计算每个配方的成本/收入；返回 (可用视图, 排除说明)。"""
     recipes = (
@@ -294,7 +293,7 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
     prices = effective_prices(
         db, params.server_id, params.price_mode, settings.median_window_days
     )
-    views, excluded = _load_recipes(db, profession, prices, params, settings)
+    views, excluded = _load_recipes(db, profession, prices, params)
 
     probs = {
         "orange": settings.prob_orange,
