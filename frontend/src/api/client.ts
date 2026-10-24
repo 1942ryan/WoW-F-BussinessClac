@@ -11,6 +11,7 @@ import type {
   RouteDetail,
   RouteListItem,
   Server,
+  Watchlist,
 } from "@/types";
 
 /** 统一走 /api 前缀，开发由 vite proxy 转发，生产由 nginx 转发。 */
@@ -31,6 +32,12 @@ export const api = {
     http
       .get<Recipe[]>(`/professions/${key}/recipes`, {
         params: { server_id: serverId, price_mode: mode, disposition },
+      })
+      .then((r) => r.data),
+  watchlist: (key: string, fromSkill?: number, toSkill?: number) =>
+    http
+      .get<Watchlist>(`/professions/${key}/watchlist`, {
+        params: { from_skill: fromSkill, to_skill: toSkill },
       })
       .then((r) => r.data),
 

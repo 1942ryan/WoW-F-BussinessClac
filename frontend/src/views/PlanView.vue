@@ -28,8 +28,17 @@
           </select>
         </label>
         <label class="field">
-          <input type="checkbox" v-model="includeDesigns" /> 含设计图配方（掉落/购买图纸）
+          <input type="checkbox" v-model="includeDesigns" /> 含设计图配方
         </label>
+        <label v-if="includeDesigns" class="field">图纸成本
+          <select v-model="designCost">
+            <option value="ah">AH 购买计入</option>
+            <option value="drop">掉落不计</option>
+          </select>
+        </label>
+        <button class="btn" @click="showImport = true" title="导入 AUC 价格后自动重算">价格导入</button>
+        <button class="btn" @click="showTemplate = true"
+                title="生成 AUC 关注清单，去游戏内按清单导出价格">导出模板</button>
         <button class="btn primary" @click="runCalc" :disabled="loading || !validRange">
           {{ loading ? "计算中…" : "计算路线" }}
         </button>
@@ -137,6 +146,7 @@
           <tr>
             <th>技能区间</th><th>制作</th><th class="num">次数</th>
             <th>档位</th><th class="num">材料费</th><th class="num">收入</th><th class="num">净成本</th>
+            <th class="num">图纸成本</th>
           </tr>
         </thead>
         <tbody>
@@ -155,6 +165,10 @@
             <td class="num">{{ fmt(s.mat_cost) }}</td>
             <td class="num">{{ fmt(s.revenue) }}</td>
             <td class="num" :class="s.net < 0 ? 'pos' : ''">{{ fmt(s.net) }}</td>
+            <td class="num">
+              <span v-if="s.design_cost" :title="s.design_name ?? ''">{{ fmt(s.design_cost) }}</span>
+              <span v-else class="muted">—</span>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -167,11 +181,15 @@
         </thead>
         <tbody>
           <tr v-for="m in result.materials" :key="m.item_id">
-            <td>{{ m.name }}</td>
+            <td>
+              {{ m.name }}
+              <span v-if="m.kind === 'design'" class="tag design">设计图</span>
+            </td>
             <td class="num">{{ m.qty }}</td>
             <td class="num">{{ m.unit_price !== null ? fmt(m.unit_price) : "—" }}</td>
             <td>
-              <span v-if="m.price_source === 'npc'" class="tag npc">NPC 购买</span>
+              <span v-if="m.kind === 'design'" class="tag design">AH 购买</span>
+              <span v-else-if="m.price_source === 'npc'" class="tag npc">NPC 购买</span>
               <span v-else-if="m.price_source === 'ah'" class="tag ah">拍卖行</span>
               <span v-else class="muted">—</span>
             </td>
@@ -223,6 +241,11 @@
         </div>
       </div>
     </div>
+
+    <PriceImportDialog v-if="showImport" :server-id="session.state.serverId!"
+                       @close="showImport = false" @imported="onImported" />
+    <TemplateExportDialog v-if="showTemplate" :profession-key="session.state.professionKey"
+                          @close="showTemplate = false" />
   </template>
 </template>
 
@@ -230,6 +253,8 @@
 import { computed, onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { api } from "@/api/client";
+import PriceImportDialog from "@/components/PriceImportDialog.vue";
+import TemplateExportDialog from "@/components/TemplateExportDialog.vue";
 import { useSessionStore } from "@/stores/session";
 import type { CalcResult, Profession, Recipe } from "@/types";
 
@@ -245,8 +270,11 @@ const toSkill = ref(session.state.toSkill);
 const priceMode = ref(session.state.priceMode);
 const disposition = ref(session.state.disposition);
 const includeDesigns = ref(session.state.includeDesigns);
+const designCost = ref(session.state.designCost);
 
 const showSave = ref(false);
+const showImport = ref(false);
+const showTemplate = ref(false);
 const saveTitle = ref("");
 const saveAuthor = ref("");
 const saveNotes = ref("");
@@ -323,12 +351,27 @@ async function runCalc() {
   session.setPriceMode(priceMode.value);
   session.setDisposition(disposition.value);
   session.setIncludeDesigns(includeDesigns.value);
+  session.setDesignCost(designCost.value);
   await loadRecipes();
   loading.value = true;
   try {
     result.value = await api.calc(session.toCalcParams());
   } finally {
     loading.value = false;
+  }
+}
+
+/** 价格导入完成后：刷新配方价格，已有计算结果时自动重算。 */
+async function onImported() {
+  showImport.value = false;
+  await loadRecipes();
+  if (result.value && validRange.value) {
+    loading.value = true;
+    try {
+      result.value = await api.calc(session.toCalcParams());
+    } finally {
+      loading.value = false;
+    }
   }
 }
 

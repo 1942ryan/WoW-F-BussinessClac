@@ -165,6 +165,109 @@ class TestCalcRoute:
         assert r_off["steps"] == []
         assert any("设计图配方未启用" in e["reason"] for e in r_off["excluded"])
 
+    def test_design_cost_ah_counts_once(self, db_session):
+        """设计图配方：AH 计价时图纸成本一次性计入，不随制作次数增加。"""
+        prof = make_profession(db_session, "test3", "图纸成本专业")
+        mat = make_item(db_session, 9301, "图纸材料")
+        design = make_item(db_session, 9302, "设计图：一次性")
+        prod = make_item(db_session, 9303, "图纸成品")
+        make_recipe(
+            db_session, prof, prod, "图纸成品", [(mat, 1)], 1, 10, 12, 15,
+            source_type="design", source_item=design,
+        )
+        server = make_server(db_session, "图纸成本服")
+        add_price(db_session, server, mat, 10)
+        add_price(db_session, server, design, 500)
+        db_session.commit()
+        result = calc_route(
+            db_session,
+            CalcIn(
+                server_id=server.id, profession_key="test3", from_skill=1, to_skill=15,
+                design_cost="ah",
+            ),
+            _settings(),
+        )
+        # 3 段（橙/黄/绿），图纸只在第一段计一次
+        design_steps = [s for s in result["steps"] if s["design_cost"]]
+        assert len(design_steps) == 1
+        assert design_steps[0]["design_cost"] == 500
+        assert design_steps[0]["design_name"] == "设计图：一次性"
+        # 材料 = 25 次 × 10 + 图纸 500
+        assert result["totals"]["mat_cost"] == 25 * 10 + 500
+        # 材料清单里图纸单独一行、数量 1
+        dline = [m for m in result["materials"] if m["kind"] == "design"]
+        assert len(dline) == 1 and dline[0]["qty"] == 1 and dline[0]["cost"] == 500
+
+    def test_design_cost_drop_ignored(self, db_session):
+        """掉落图纸：不计成本，也无警告。"""
+        prof = make_profession(db_session, "test4", "掉落图纸专业")
+        mat = make_item(db_session, 9401, "掉落材料")
+        design = make_item(db_session, 9402, "设计图：掉落")
+        prod = make_item(db_session, 9403, "掉落成品")
+        make_recipe(
+            db_session, prof, prod, "掉落成品", [(mat, 1)], 1, 10, 12, 15,
+            source_type="design", source_item=design,
+        )
+        server = make_server(db_session, "掉落服")
+        add_price(db_session, server, mat, 10)
+        add_price(db_session, server, design, 500)
+        db_session.commit()
+        result = calc_route(
+            db_session,
+            CalcIn(
+                server_id=server.id, profession_key="test4", from_skill=1, to_skill=15,
+                design_cost="drop",
+            ),
+            _settings(),
+        )
+        assert all(s["design_cost"] == 0 for s in result["steps"])
+        assert result["totals"]["mat_cost"] == 25 * 10
+        assert not any("设计图" in w for w in result["warnings"])
+
+    def test_design_missing_price_warns(self, db_session):
+        """AH 计价但图纸无价格：按 0 计并警告。"""
+        prof = make_profession(db_session, "test5", "缺价图纸专业")
+        mat = make_item(db_session, 9501, "缺价材料")
+        design = make_item(db_session, 9502, "设计图：缺价")
+        prod = make_item(db_session, 9503, "缺价成品")
+        make_recipe(
+            db_session, prof, prod, "缺价成品", [(mat, 1)], 1, 10, 12, 15,
+            source_type="design", source_item=design,
+        )
+        server = make_server(db_session, "缺价服")
+        add_price(db_session, server, mat, 10)
+        db_session.commit()
+        result = calc_route(
+            db_session,
+            CalcIn(server_id=server.id, profession_key="test5", from_skill=1, to_skill=15),
+            _settings(),
+        )
+        assert any("暂无价格" in w for w in result["warnings"])
+
+    def test_block_design_item(self, db_session):
+        """屏蔽设计图物品 → 该设计图配方不参与计算。"""
+        prof = make_profession(db_session, "test6", "屏蔽图纸专业")
+        mat = make_item(db_session, 9601, "屏蔽材料")
+        design = make_item(db_session, 9602, "设计图：屏蔽")
+        prod = make_item(db_session, 9603, "屏蔽成品")
+        make_recipe(
+            db_session, prof, prod, "屏蔽成品", [(mat, 1)], 1, 10, 12, 15,
+            source_type="design", source_item=design,
+        )
+        server = make_server(db_session, "屏蔽服")
+        add_price(db_session, server, mat, 10)
+        db_session.commit()
+        result = calc_route(
+            db_session,
+            CalcIn(
+                server_id=server.id, profession_key="test6", from_skill=1, to_skill=15,
+                blocked_item_ids=[9602],
+            ),
+            _settings(),
+        )
+        assert result["steps"] == []
+        assert any("设计图物品被屏蔽" in e["reason"] for e in result["excluded"])
+
     def test_invalid_range(self, db_session):
         _prof, server, _ = _build_scenario(db_session)
         with pytest.raises(ValueError):

@@ -119,6 +119,10 @@ class RecipeView:
     cost_per_point: float | None = None
     missing: list[str] = field(default_factory=list)  # 缺价格的材料名
     revenue_fallback: bool = False  # 拍卖行无价、按卖店价估算
+    # 设计图配方：图纸一次性成本（学会即消耗，不随制作次数增加）
+    design_cost: int = 0
+    design_name: str | None = None
+    design_missing: bool = False  # AH 计价但图纸暂无价格
 
 
 def _band(recipe: RecipeView, skill: int) -> str:
@@ -159,6 +163,8 @@ def _load_recipes(
     for r in recipes:
         if r.product_item_id:
             item_ids.add(r.product_item_id)
+        if r.source_item_id:
+            item_ids.add(r.source_item_id)
 
     items = {
         it.id: it
@@ -213,6 +219,11 @@ def _load_recipes(
             continue
         if r.product_item_id and r.product_item_id in blocked_items:
             excluded.append({"recipe_id": r.id, "name": r.product_name, "reason": "成品被屏蔽"})
+            continue
+        if r.source_type == "design" and r.source_item_id in blocked_items:
+            excluded.append(
+                {"recipe_id": r.id, "name": r.product_name, "reason": "设计图物品被屏蔽"}
+            )
             continue
 
         # 材料成本
@@ -276,6 +287,17 @@ def _load_recipes(
             # self_use → 0
         view.revenue = revenue
         view.net = mat_cost - revenue
+
+        # 设计图成本（一次性，学会配方即消耗）
+        if r.source_type == "design" and r.source_item_id:
+            design_item = items.get(r.source_item_id)
+            view.design_name = design_item.name if design_item else f"物品{r.source_item_id}"
+            if params.design_cost == "ah":
+                dp = prices.get(r.source_item_id)
+                if dp is not None:
+                    view.design_cost = dp
+                else:
+                    view.design_missing = True
         views.append(view)
 
     return views, excluded
@@ -306,6 +328,7 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
         v.cost_per_point = None  # 依赖当前技能档，运行时计算
 
     confirmed = set(params.confirmed_recipe_ids)
+    design_paid: set[int] = set()  # 已计入一次性图纸成本的配方
     steps: list[dict] = []
     mat_totals: dict[int, dict] = {}
     warnings: list[str] = []
@@ -346,6 +369,32 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
         step_net = best.net * crafts
         step_mat = best.mat_cost * crafts
         step_rev = best.revenue * crafts
+
+        # 设计图一次性成本（同一配方只计一次）
+        step_design_cost = 0
+        step_design_name: str | None = None
+        if best.source_type == "design" and best.id not in design_paid:
+            design_paid.add(best.id)
+            step_design_cost = best.design_cost
+            step_design_name = best.design_name
+            if best.design_missing:
+                warnings.append(
+                    f"「{best.product_name}」需要设计图「{best.design_name}」，暂无价格（按 0 计；"
+                    "如为掉落获得，请把图纸获取方式改为「掉落」）"
+                )
+            elif step_design_cost > 0 and best.source_item_id:
+                agg = mat_totals.setdefault(
+                    best.source_item_id,
+                    {
+                        "item_id": best.source_item_id,
+                        "name": best.design_name,
+                        "qty": 0,
+                        "kind": "design",
+                    },
+                )
+                agg["qty"] += 1
+        step_mat += step_design_cost
+
         steps.append(
             {
                 "skill_from": skill,
@@ -361,6 +410,8 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
                 "net": step_net,
                 "confirmed": best.id in confirmed,
                 "source_type": best.source_type,
+                "design_cost": step_design_cost,
+                "design_name": step_design_name,
             }
         )
         if best.revenue_fallback:
@@ -394,6 +445,9 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
             last["mat_cost"] += st["mat_cost"]
             last["revenue"] += st["revenue"]
             last["net"] += st["net"]
+            last["design_cost"] += st["design_cost"]
+            if st["design_name"] and not last["design_name"]:
+                last["design_name"] = st["design_name"]
         else:
             merged_steps.append(st)
     steps = merged_steps
@@ -404,15 +458,16 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
         ah = prices.get(item_id)
         # NPC 价：从配方行反推较麻烦，这里直接查一次
         npc = None
-        ms_kind = db.execute(
-            select(MaterialSource.kind).where(
-                MaterialSource.profession_id == profession.id,
-                MaterialSource.item_id == item_id,
-            )
-        ).scalar_one_or_none()
-        if ms_kind == "vendor":
-            item = db.get(Item, item_id)
-            npc = item.vendor_price if item else None
+        if agg.get("kind") != "design":
+            ms_kind = db.execute(
+                select(MaterialSource.kind).where(
+                    MaterialSource.profession_id == profession.id,
+                    MaterialSource.item_id == item_id,
+                )
+            ).scalar_one_or_none()
+            if ms_kind == "vendor":
+                item = db.get(Item, item_id)
+                npc = item.vendor_price if item else None
         unit = None
         source = None
         if ah is not None and npc is not None:
@@ -429,6 +484,7 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
                 "unit_price": unit,
                 "price_source": source,
                 "cost": unit * agg["qty"] if unit is not None else None,
+                "kind": agg.get("kind", "material"),
             }
         )
     materials.sort(key=lambda m: (m["cost"] is None, -(m["cost"] or 0)))

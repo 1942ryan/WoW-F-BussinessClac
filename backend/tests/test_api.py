@@ -123,3 +123,64 @@ def test_import_bad_file(client, db_session):
     )
     # 无表头时按两列解析 → 无有效行 → 400
     assert r.status_code == 400
+
+
+def test_import_auc_export_with_level_disambiguation(client, db_session):
+    """AUC 导出格式：同名不同物品按物品等级分别导入。"""
+    from tests.conftest import make_item, make_server
+
+    server = make_server(db_session, "等级服")
+    make_item(db_session, 4358, "劣质炸药", item_level=10)
+    make_item(db_session, 4365, "劣质炸药", item_level=20)
+    make_item(db_session, 4357, "劣质火药", item_level=5)
+    db_session.commit()
+
+    auc = (
+        '"价格","名称","物品等级","拥有？","可售数量"\n'
+        '115,"劣质火药",5,"",1169\n'
+        '200,"劣质炸药",20,"",61\n'
+        '90,"劣质炸药",10,"",399\n'
+    ).encode("utf-8")
+    r = client.post(
+        "/api/v1/prices/import",
+        files={"file": ("auc_export.csv", auc, "text/csv")},
+        data={"server_id": server.id},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["matched"] == 3 and r.json()["inserted"] == 3
+
+    prices = {
+        p["item_id"]: p["price"]
+        for p in client.get(f"/api/v1/prices?server_id={server.id}").json()
+    }
+    assert prices[4357] == 115
+    assert prices[4365] == 200  # 物品等级 20
+    assert prices[4358] == 90   # 物品等级 10
+
+
+def test_watchlist_export(client, db_session):
+    from tests.conftest import make_item, make_profession, make_recipe, make_server
+
+    make_server(db_session, "模板服")
+    prof = make_profession(db_session, "bs", "锻造")
+    mat = make_item(db_session, 2840, "铜锭")
+    prod = make_item(db_session, 2851, "铜棒")
+    design = make_item(db_session, 2020, "设计图：铜棒")
+    make_recipe(
+        db_session, prof, prod, "铜棒", [(mat, 1)], 1, 10, 12, 15,
+        source_type="design", source_item=design,
+    )
+    db_session.commit()
+
+    r = client.get("/api/v1/professions/bs/watchlist")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["list_name"] == "锻造"
+    assert data["count"] == 3
+    names = {i["name"] for i in data["items"]}
+    assert names == {"铜锭", "铜棒", "设计图：铜棒"}
+    kinds = {i["name"]: i["kind"] for i in data["items"]}
+    assert kinds["设计图：铜棒"] == "design" and kinds["铜锭"] == "material"
+    assert data["text"].startswith("锻造^")
+    for n in names:
+        assert n in data["text"]

@@ -13,6 +13,7 @@ interface SessionState {
   priceMode: "latest" | "median";
   disposition: "sell_ah" | "sell_npc" | "self_use";
   includeDesigns: boolean;
+  designCost: "ah" | "drop";
   blockedRecipeIds: number[];
   blockedItemIds: number[];
   confirmedRecipeIds: number[];
@@ -38,6 +39,7 @@ function defaults(): SessionState {
     priceMode: "latest",
     disposition: "sell_ah",
     includeDesigns: true,
+    designCost: "ah",
     blockedRecipeIds: [],
     blockedItemIds: [],
     confirmedRecipeIds: [],
@@ -83,6 +85,11 @@ export const useSessionStore = defineStore("session", () => {
     persist();
   }
 
+  function setDesignCost(v: "ah" | "drop") {
+    state.value.designCost = v;
+    persist();
+  }
+
   function toggleBlockRecipe(id: number) {
     const arr = state.value.blockedRecipeIds;
     state.value.blockedRecipeIds = arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id];
@@ -114,6 +121,7 @@ export const useSessionStore = defineStore("session", () => {
     state.value.priceMode = p.price_mode;
     state.value.disposition = p.product_disposition;
     state.value.includeDesigns = p.include_designs;
+    state.value.designCost = p.design_cost ?? "ah";
     state.value.blockedRecipeIds = [...p.blocked_recipe_ids];
     state.value.blockedItemIds = [...p.blocked_item_ids];
     state.value.confirmedRecipeIds = [...p.confirmed_recipe_ids];
@@ -132,6 +140,7 @@ export const useSessionStore = defineStore("session", () => {
       blocked_item_ids: state.value.blockedItemIds,
       confirmed_recipe_ids: state.value.confirmedRecipeIds,
       include_designs: state.value.includeDesigns,
+      design_cost: state.value.designCost,
     };
   }
 
@@ -144,6 +153,7 @@ export const useSessionStore = defineStore("session", () => {
     setPriceMode,
     setDisposition,
     setIncludeDesigns,
+    setDesignCost,
     toggleBlockRecipe,
     toggleConfirmRecipe,
     toggleBlockItem,

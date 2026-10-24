@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 PriceMode = Literal["latest", "median"]
 Disposition = Literal["sell_ah", "sell_npc", "self_use"]
+DesignCost = Literal["ah", "drop"]
 
 
 # ---------- 通用 ----------
@@ -148,6 +149,8 @@ class CalcIn(BaseModel):
     blocked_item_ids: list[int] = []
     confirmed_recipe_ids: list[int] = []
     include_designs: bool = True
+    # 设计图获取方式：ah=AH 可购买，图纸价计入冲级成本；drop=掉落获得，不计成本
+    design_cost: DesignCost = "ah"
 
 
 class CalcStepOut(BaseModel):
@@ -164,6 +167,8 @@ class CalcStepOut(BaseModel):
     net: int
     confirmed: bool
     source_type: str
+    design_cost: int = 0  # 本段一次性设计图成本（铜，AH 购买时）
+    design_name: str | None = None  # 设计图物品名
 
 
 class MaterialTotalOut(BaseModel):
@@ -173,6 +178,7 @@ class MaterialTotalOut(BaseModel):
     unit_price: int | None
     price_source: str | None
     cost: int | None
+    kind: str = "material"  # material | design
 
 
 class CalcTotalsOut(BaseModel):
@@ -211,7 +217,25 @@ class RouteSaveIn(BaseModel):
     blocked_item_ids: list[int] = []
     confirmed_recipe_ids: list[int] = []
     include_designs: bool = True
+    design_cost: DesignCost = "ah"
     is_public: bool = True
+
+
+# ---------- 模板导出（AUC 关注清单） ----------
+
+
+class WatchlistItemOut(BaseModel):
+    item_id: int
+    name: str
+    kind: str  # material | product | design
+
+
+class WatchlistOut(BaseModel):
+    profession: dict
+    list_name: str
+    count: int
+    items: list[WatchlistItemOut] = []
+    text: str  # AUC 关注清单文本：清单名^物品1^物品2…
 
 
 class RouteListItemOut(BaseModel):

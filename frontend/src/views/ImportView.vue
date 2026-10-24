@@ -9,15 +9,17 @@
       <h2>导入拍卖行价格 · {{ session.state.serverName }}</h2>
       <p class="muted" style="margin-top: 0">
         从游戏内 AUC 插件导出 CSV 后上传；每次导入都会留存记录，同服务器玩家之后计算时自动使用这些价格。
-        表头需包含「名称」与「价格」列（也支持物品链接格式，见 README）。
       </p>
       <div class="flex flex-wrap" style="align-items: flex-start; gap: 14px">
         <div class="grow">
-          <textarea v-model="csvText" placeholder="在此粘贴 CSV 内容，例如：&#10;物品名称,单价&#10;铜锭,25&#10;秘银锭,1银20铜"></textarea>
+          <textarea v-model="csvText" placeholder='在此粘贴 AUC 导出内容，例如：
+"价格","名称","物品等级","拥有？","可售数量"
+115,"劣质火药",5,"",1169
+200,"劣质炸药",20,"",61'></textarea>
         </div>
         <div style="min-width: 200px">
           <div>或选择文件：</div>
-          <input type="file" accept=".csv,text/csv" @change="onFile" />
+          <input type="file" accept=".csv,text/csv,.txt" @change="onFile" />
           <div style="margin-top: 10px">
             <label class="field">你的昵称
               <input v-model="importedBy" type="text" style="width: 130px" placeholder="可选" />
@@ -27,8 +29,22 @@
                   :disabled="importing || (!csvText.trim() && !file)">
             开始导入
           </button>
+          <button class="btn" style="margin-top: 10px" @click="showTemplate = true">
+            导出模板（AUC 关注清单）
+          </button>
         </div>
       </div>
+
+      <details style="margin-top: 10px">
+        <summary class="muted">支持的格式说明</summary>
+        <ul class="muted" style="font-size: 13px; line-height: 1.7">
+          <li><b>AUC 拍卖行导出</b>（推荐）：表头 <code>"价格","名称","物品等级","拥有？","可售数量"</code>，
+            价格为铜；「物品等级」用于区分同名不同物品（如劣质炸药 10级/20级）。</li>
+          <li><b>文档 CSV</b>：表头含「名称」「单价」两列，价格支持 <code>25</code>、<code>1银20铜</code>、<code>1.5g</code>。</li>
+          <li><b>物品链接格式</b>：<code>|cff...|Hitem:2840:...|h[铜锭]|h|r,25</code>，按物品 ID 精确匹配。</li>
+          <li>不知道该导哪些物品？点「导出模板」按专业生成 AUC 关注清单，在游戏内 AUC 导入该清单后按清单导出价格。</li>
+        </ul>
+      </details>
 
       <div v-if="summary" class="alert info" style="margin-top: 12px">
         本次导入：{{ summary.row_count }} 行 · 匹配 {{ summary.matched }} · 未匹配 {{ summary.unmatched }} · 入库 {{ summary.inserted }}
@@ -117,6 +133,9 @@
       </table>
       <div v-else class="empty">暂无导入记录。</div>
     </section>
+
+    <TemplateExportDialog v-if="showTemplate" :profession-key="session.state.professionKey"
+                          @close="showTemplate = false" />
   </template>
 </template>
 
@@ -124,6 +143,7 @@
 import { onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { api } from "@/api/client";
+import TemplateExportDialog from "@/components/TemplateExportDialog.vue";
 import { useSessionStore } from "@/stores/session";
 import type { BatchInfo, EffectivePrice, ImportSummary, ItemPrice } from "@/types";
 
@@ -133,6 +153,7 @@ const file = ref<File | null>(null);
 const importedBy = ref("");
 const importing = ref(false);
 const summary = ref<ImportSummary | null>(null);
+const showTemplate = ref(false);
 const prices = ref<EffectivePrice[]>([]);
 const priceMode = ref(session.state.priceMode);
 const priceQuery = ref("");

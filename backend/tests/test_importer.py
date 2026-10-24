@@ -84,3 +84,28 @@ class TestParseCsv:
             parse_csv("".encode("utf-8"))
         with pytest.raises(ImportParseError):
             parse_csv("物品名称,单价\n".encode("utf-8"))
+
+    def test_auc_export_format(self):
+        """AUC 拍卖行导出：价格在前、带物品等级（同名不同物品消歧用）。"""
+        data = (
+            '"价格","名称","物品等级","拥有？","可售数量"\n'
+            '115,"劣质火药",5,"",1169\n'
+            '200,"劣质炸药",20,"",61\n'
+            '90,"劣质炸药",10,"",399\n'
+        ).encode("utf-8")
+        rows = parse_csv(data)
+        assert len(rows) == 3
+        assert rows[0].raw_name == "劣质火药" and rows[0].price == 115
+        assert rows[0].item_level == 5
+        assert rows[1].raw_name == "劣质炸药" and rows[1].price == 200
+        assert rows[1].item_level == 20
+        assert rows[2].raw_name == "劣质炸药" and rows[2].price == 90
+        assert rows[2].item_level == 10
+
+    def test_auc_export_gbk(self):
+        data = (
+            '"价格","名称","物品等级","拥有？","可售数量"\n'
+            '115,"劣质火药",5,"",1169\n'
+        ).encode("gb18030")
+        rows = parse_csv(data)
+        assert rows[0].raw_name == "劣质火药" and rows[0].price == 115

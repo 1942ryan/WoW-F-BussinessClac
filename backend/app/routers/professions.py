@@ -9,10 +9,72 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..database import get_db
 from ..models import Item, MaterialSource, Profession, Recipe, RecipeMaterial
-from ..schemas import MaterialOut, ProfessionOut, RecipeOut
+from ..schemas import MaterialOut, ProfessionOut, RecipeOut, WatchlistItemOut, WatchlistOut
 from ..services.calc import effective_prices
 
 router = APIRouter(prefix="/professions", tags=["professions"])
+
+
+@router.get("/{key}/watchlist", response_model=WatchlistOut)
+def profession_watchlist(
+    key: str,
+    from_skill: int | None = Query(default=None, ge=0),
+    to_skill: int | None = Query(default=None, ge=0),
+    db: Session = Depends(get_db),
+) -> WatchlistOut:
+    """导出 AUC 关注清单：该专业（可选技能区间）全部配方涉及的物品。
+
+    输出文本格式为「清单名^物品1^物品2^…」，可在游戏内 AUC 的关注清单
+    导入里直接粘贴，随后按清单导出价格文本，回本页导入。
+    """
+    prof = db.execute(select(Profession).where(Profession.key == key)).scalar_one_or_none()
+    if prof is None:
+        raise HTTPException(404, f"专业不存在: {key}")
+
+    recipes = (
+        db.execute(
+            select(Recipe)
+            .where(Recipe.profession_id == prof.id)
+            .order_by(Recipe.skill_orange, Recipe.id)
+        )
+        .scalars()
+        .unique()
+        .all()
+    )
+    if from_skill is not None:
+        recipes = [r for r in recipes if r.skill_gray > from_skill]
+    if to_skill is not None:
+        recipes = [r for r in recipes if r.skill_orange <= to_skill]
+
+    mat_rows = (
+        db.execute(
+            select(RecipeMaterial).where(RecipeMaterial.recipe_id.in_([r.id for r in recipes]))
+        )
+        .scalars()
+        .all()
+    )
+    kinds: dict[int, str] = {}
+    for m in mat_rows:
+        kinds.setdefault(m.item_id, "material")
+    for r in recipes:
+        if r.product_item_id:
+            kinds.setdefault(r.product_item_id, "product")
+        if r.source_item_id:
+            kinds.setdefault(r.source_item_id, "design")
+
+    items = {i.id: i for i in db.execute(select(Item).where(Item.id.in_(kinds))).scalars().all()}
+    entries = sorted(
+        ({"item_id": i, "name": items[i].name, "kind": k} for i, k in kinds.items() if i in items),
+        key=lambda e: e["name"],
+    )
+    text = "^".join([prof.name, *(e["name"] for e in entries)])
+    return WatchlistOut(
+        profession={"key": prof.key, "name": prof.name},
+        list_name=prof.name,
+        count=len(entries),
+        items=[WatchlistItemOut(**e) for e in entries],
+        text=text,
+    )
 
 
 @router.get("", response_model=list[ProfessionOut])

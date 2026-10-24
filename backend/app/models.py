@@ -168,6 +168,7 @@ class SavedRoute(Base):
     blocked_item_ids: Mapped[str] = mapped_column(Text, default="[]")  # JSON
     confirmed_recipe_ids: Mapped[str] = mapped_column(Text, default="[]")  # JSON
     include_designs: Mapped[bool] = mapped_column(Boolean, default=True)
+    design_cost: Mapped[str] = mapped_column(String(8), default="ah", server_default="ah")  # ah | drop
     steps: Mapped[str] = mapped_column(Text, default="[]")  # JSON 快照
     totals: Mapped[str] = mapped_column(Text, default="{}")  # JSON 快照
     is_public: Mapped[bool] = mapped_column(Boolean, default=True, index=True)

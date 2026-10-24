@@ -102,6 +102,8 @@ export interface CalcStep {
   net: number;
   confirmed: boolean;
   source_type: string;
+  design_cost: number;
+  design_name: string | null;
 }
 
 export interface MaterialTotal {
@@ -111,6 +113,7 @@ export interface MaterialTotal {
   unit_price: number | null;
   price_source: string | null;
   cost: number | null;
+  kind?: string;
 }
 
 export interface CalcTotals {
@@ -132,6 +135,7 @@ export interface CalcParams {
   blocked_item_ids: number[];
   confirmed_recipe_ids: number[];
   include_designs: boolean;
+  design_cost: "ah" | "drop";
 }
 
 export interface CalcResult {
@@ -143,6 +147,20 @@ export interface CalcResult {
   materials: MaterialTotal[];
   warnings: string[];
   excluded: { recipe_id: number; name: string; reason: string }[];
+}
+
+export interface WatchlistItem {
+  item_id: number;
+  name: string;
+  kind: "material" | "product" | "design";
+}
+
+export interface Watchlist {
+  profession: { key: string; name: string };
+  list_name: string;
+  count: number;
+  items: WatchlistItem[];
+  text: string;
 }
 
 export interface RouteListItem {

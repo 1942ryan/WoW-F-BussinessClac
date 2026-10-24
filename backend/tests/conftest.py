@@ -43,8 +43,8 @@ def client():
 # ---------- 测试数据工厂 ----------
 
 
-def make_item(db, item_id: int, name: str, vendor_price: int = 0, quality: int = 1) -> Item:
-    item = Item(id=item_id, name=name, quality=quality, vendor_price=vendor_price)
+def make_item(db, item_id: int, name: str, vendor_price: int = 0, quality: int = 1, item_level: int | None = None) -> Item:
+    item = Item(id=item_id, name=name, quality=quality, vendor_price=vendor_price, item_level=item_level)
     db.add(item)
     db.flush()
     return item
@@ -69,6 +69,7 @@ def make_recipe(
     gray: int,
     source_type: str = "trainer",
     product_qty: int = 1,
+    source_item: Item | None = None,
 ) -> Recipe:
     r = Recipe(
         profession_id=prof.id,
@@ -81,6 +82,7 @@ def make_recipe(
         skill_green=green,
         skill_gray=gray,
         source_type=source_type,
+        source_item_id=source_item.id if source_item else None,
     )
     db.add(r)
     db.flush()

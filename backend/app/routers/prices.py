@@ -24,14 +24,40 @@ from ..services.importer import ImportParseError, normalize_name, parse_csv
 router = APIRouter(prefix="/prices", tags=["prices"])
 
 
-def _resolve_items(db: Session) -> tuple[dict[str, int], dict[str, int]]:
-    """返回 (精确名称→id, 归一化名称→id)。"""
-    exact: dict[str, int] = {}
-    normalized: dict[str, int] = {}
-    for item in db.execute(select(Item.id, Item.name)).all():
-        exact.setdefault(item.name, item.id)
-        normalized.setdefault(normalize_name(item.name), item.id)
+def _resolve_items(db: Session) -> tuple[dict[str, list[tuple[int, int | None]]], dict[str, list[tuple[int, int | None]]]]:
+    """返回 (精确名称→[(id, 物品等级)], 归一化名称→[(id, 物品等级)])。
+
+    无限版存在同名不同物品（如「劣质炸药」4358/4365，物品等级 10/20），
+    导入时若 AUC 导出带物品等级列，可据此精确消歧。
+    """
+    exact: dict[str, list[tuple[int, int | None]]] = {}
+    normalized: dict[str, list[tuple[int, int | None]]] = {}
+    for item in db.execute(select(Item.id, Item.name, Item.item_level)).all():
+        exact.setdefault(item.name, []).append((item.id, item.item_level))
+        normalized.setdefault(normalize_name(item.name), []).append((item.id, item.item_level))
     return exact, normalized
+
+
+def _match_item(
+    row,
+    exact: dict[str, list[tuple[int, int | None]]],
+    normalized: dict[str, list[tuple[int, int | None]]],
+) -> list[int]:
+    """一行导入数据 → 匹配到的物品 ID 列表（可能多个：同名且无等级可消歧）。"""
+    if row.item_id is not None:
+        return [row.item_id]
+    candidates = exact.get(row.raw_name) or normalized.get(normalize_name(row.raw_name)) or []
+    if not candidates:
+        return []
+    if len(candidates) == 1:
+        return [candidates[0][0]]
+    # 同名多个物品：优先按物品等级精确匹配
+    if row.item_level is not None:
+        by_level = [i for i, lvl in candidates if lvl == row.item_level]
+        if by_level:
+            return by_level
+    # 无等级信息：同名物品全部赋同一价格（用户可事后手动微调）
+    return [i for i, _ in candidates]
 
 
 @router.post("/import", response_model=ImportSummaryOut)
@@ -53,25 +79,29 @@ async def import_prices(
         raise HTTPException(400, str(exc)) from exc
 
     exact, normalized = _resolve_items(db)
+    existing_ids = {
+        i for (i,) in db.execute(select(Item.id)).all()
+    }
     records: list[PriceRecord] = []
     unmatched: list[str] = []
-    matched = 0
+    matched_rows = 0
     for row in rows:
-        item_id = row.item_id
-        if item_id is None:
-            item_id = exact.get(row.raw_name) or normalized.get(normalize_name(row.raw_name))
-        if item_id is None or db.get(Item, item_id) is None:
+        ids = [i for i in _match_item(row, exact, normalized) if i in existing_ids]
+        if not ids:
             unmatched.append(row.raw_name)
             continue
-        matched += 1
-        records.append(PriceRecord(server_id=server_id, item_id=item_id, unit_price=row.price))
+        matched_rows += 1
+        records.extend(
+            PriceRecord(server_id=server_id, item_id=item_id, unit_price=row.price)
+            for item_id in ids
+        )
 
     batch = PriceBatch(
         server_id=server_id,
         filename=file.filename,
         source="auc",
         row_count=len(rows),
-        matched=matched,
+        matched=matched_rows,
         unmatched=len(unmatched),
         imported_by=(imported_by or "").strip() or None,
     )
@@ -84,7 +114,7 @@ async def import_prices(
     return ImportSummaryOut(
         batch_id=batch.id,
         row_count=len(rows),
-        matched=matched,
+        matched=matched_rows,
         unmatched=len(unmatched),
         inserted=len(records),
         unmatched_names=sorted(set(unmatched))[:50],

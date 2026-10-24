@@ -59,6 +59,7 @@ def save_route(payload: RouteSaveIn, db: Session = Depends(get_db)) -> RouteDeta
         blocked_item_ids=payload.blocked_item_ids,
         confirmed_recipe_ids=payload.confirmed_recipe_ids,
         include_designs=payload.include_designs,
+        design_cost=payload.design_cost,
     )
     result = _calc_or_400(db, params)
 
@@ -76,6 +77,7 @@ def save_route(payload: RouteSaveIn, db: Session = Depends(get_db)) -> RouteDeta
         blocked_item_ids=json.dumps(payload.blocked_item_ids, ensure_ascii=False),
         confirmed_recipe_ids=json.dumps(payload.confirmed_recipe_ids, ensure_ascii=False),
         include_designs=payload.include_designs,
+        design_cost=payload.design_cost,
         steps=json.dumps(result["steps"], ensure_ascii=False),
         totals=json.dumps(result["totals"], ensure_ascii=False),
         is_public=payload.is_public,
@@ -108,6 +110,7 @@ def _detail_out(db: Session, route: SavedRoute, result: dict | None = None) -> R
         "blocked_item_ids": json.loads(route.blocked_item_ids),
         "confirmed_recipe_ids": json.loads(route.confirmed_recipe_ids),
         "include_designs": route.include_designs,
+        "design_cost": route.design_cost,
     }
     return RouteDetailOut(
         id=route.id,
@@ -201,6 +204,7 @@ def route_recalc(share_code: str, db: Session = Depends(get_db)) -> CalcOut:
         blocked_item_ids=json.loads(route.blocked_item_ids),
         confirmed_recipe_ids=json.loads(route.confirmed_recipe_ids),
         include_designs=route.include_designs,
+        design_cost=route.design_cost,
     )
     result = _calc_or_400(db, params)
     server = db.get(Server, route.server_id)
