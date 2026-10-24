@@ -22,6 +22,25 @@ DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 # 来源类型归一化：站点原文 → 统一键
 SOURCE_MAP = {"训练师": "trainer", "设计图": "design", "商人": "vendor", "掉落": "drop", "任务": "quest"}
 
+# 专业图标（无限官方图标库 /tubiao/<name>.jpg，命名与 WoW 原版一致）
+ICON_BASE = "https://wowforever.wclbox.com/tubiao"
+PROFESSION_ICONS = {
+    "blacksmithing": "trade_blacksmithing",
+    "leatherworking": "trade_leatherworking",
+    "tailoring": "trade_tailoring",
+    "alchemy": "trade_alchemy",
+    "enchanting": "trade_engraving",
+    "engineering": "trade_engineering",
+    "cooking": "inv_misc_food_15",
+    "first-aid": "inv_misc_bandage_15",
+    "mining": "trade_mining",
+}
+
+
+def profession_icon(key: str) -> str | None:
+    name = PROFESSION_ICONS.get(key)
+    return f"{ICON_BASE}/{name}.jpg" if name else None
+
 
 def normalize_source(raw: str) -> str:
     return SOURCE_MAP.get(raw, raw)
@@ -76,7 +95,7 @@ def seed(force: bool = False) -> None:
         n_recipes = 0
         n_mats = 0
         for prof in professions:
-            p = Profession(key=prof["key"], name=prof["name"])
+            p = Profession(key=prof["key"], name=prof["name"], icon=profession_icon(prof["key"]))
             db.add(p)
             db.flush()
             for rec in prof["recipes"]:

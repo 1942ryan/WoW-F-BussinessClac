@@ -58,8 +58,14 @@ def save_route(payload: RouteSaveIn, db: Session = Depends(get_db)) -> RouteDeta
         blocked_recipe_ids=payload.blocked_recipe_ids,
         blocked_item_ids=payload.blocked_item_ids,
         confirmed_recipe_ids=payload.confirmed_recipe_ids,
+        confirmed_counts=payload.confirmed_counts,
+        recipe_dispositions=payload.recipe_dispositions,
         include_designs=payload.include_designs,
         design_cost=payload.design_cost,
+        prob_mode=payload.prob_mode,
+        prob_orange=payload.prob_orange,
+        prob_yellow=payload.prob_yellow,
+        prob_green=payload.prob_green,
     )
     result = _calc_or_400(db, params)
 
@@ -76,8 +82,14 @@ def save_route(payload: RouteSaveIn, db: Session = Depends(get_db)) -> RouteDeta
         blocked_recipe_ids=json.dumps(payload.blocked_recipe_ids, ensure_ascii=False),
         blocked_item_ids=json.dumps(payload.blocked_item_ids, ensure_ascii=False),
         confirmed_recipe_ids=json.dumps(payload.confirmed_recipe_ids, ensure_ascii=False),
+        confirmed_counts=json.dumps(payload.confirmed_counts, ensure_ascii=False),
+        recipe_dispositions=json.dumps(payload.recipe_dispositions, ensure_ascii=False),
         include_designs=payload.include_designs,
         design_cost=payload.design_cost,
+        prob_mode=payload.prob_mode,
+        prob_orange=payload.prob_orange,
+        prob_yellow=payload.prob_yellow,
+        prob_green=payload.prob_green,
         steps=json.dumps(result["steps"], ensure_ascii=False),
         totals=json.dumps(result["totals"], ensure_ascii=False),
         is_public=payload.is_public,
@@ -109,8 +121,14 @@ def _detail_out(db: Session, route: SavedRoute, result: dict | None = None) -> R
         "blocked_recipe_ids": json.loads(route.blocked_recipe_ids),
         "blocked_item_ids": json.loads(route.blocked_item_ids),
         "confirmed_recipe_ids": json.loads(route.confirmed_recipe_ids),
+        "confirmed_counts": json.loads(route.confirmed_counts or "{}"),
+        "recipe_dispositions": json.loads(route.recipe_dispositions or "{}"),
         "include_designs": route.include_designs,
         "design_cost": route.design_cost,
+        "prob_mode": route.prob_mode or "formula",
+        "prob_orange": route.prob_orange,
+        "prob_yellow": route.prob_yellow,
+        "prob_green": route.prob_green,
     }
     return RouteDetailOut(
         id=route.id,
@@ -166,6 +184,7 @@ def list_routes(
                 from_skill=r.from_skill,
                 to_skill=r.to_skill,
                 price_mode=r.price_mode,
+                net=totals.get("net", 0),
                 net_display=totals.get("net_display", "-"),
                 is_public=r.is_public,
                 created_at=r.created_at,
@@ -203,8 +222,16 @@ def route_recalc(share_code: str, db: Session = Depends(get_db)) -> CalcOut:
         blocked_recipe_ids=json.loads(route.blocked_recipe_ids),
         blocked_item_ids=json.loads(route.blocked_item_ids),
         confirmed_recipe_ids=json.loads(route.confirmed_recipe_ids),
+        confirmed_counts={int(k): v for k, v in json.loads(route.confirmed_counts or "{}").items()},
+        recipe_dispositions={
+            int(k): v for k, v in json.loads(route.recipe_dispositions or "{}").items()
+        },
         include_designs=route.include_designs,
         design_cost=route.design_cost,
+        prob_mode=route.prob_mode or "formula",
+        prob_orange=route.prob_orange,
+        prob_yellow=route.prob_yellow,
+        prob_green=route.prob_green,
     )
     result = _calc_or_400(db, params)
     server = db.get(Server, route.server_id)

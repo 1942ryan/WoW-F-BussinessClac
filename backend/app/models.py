@@ -7,6 +7,7 @@ from datetime import datetime
 from sqlalchemy import (
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -53,6 +54,7 @@ class Profession(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     key: Mapped[str] = mapped_column(String(32), unique=True)
     name: Mapped[str] = mapped_column(String(32))
+    icon: Mapped[str | None] = mapped_column(String(256))  # 图标 URL（无限官方库）
 
     recipes: Mapped[list["Recipe"]] = relationship(back_populates="profession")
 
@@ -168,8 +170,17 @@ class SavedRoute(Base):
     blocked_recipe_ids: Mapped[str] = mapped_column(Text, default="[]")  # JSON
     blocked_item_ids: Mapped[str] = mapped_column(Text, default="[]")  # JSON
     confirmed_recipe_ids: Mapped[str] = mapped_column(Text, default="[]")  # JSON
+    # 确认配方的制作次数 {recipe_id: count}；缺省 1（应对长 CD 配方）
+    confirmed_counts: Mapped[str] = mapped_column(Text, default="{}")  # JSON
+    # 单配方产物处置覆盖 {recipe_id: sell_ah|sell_npc|self_use}；缺省跟随全局
+    recipe_dispositions: Mapped[str] = mapped_column(Text, default="{}")  # JSON
     include_designs: Mapped[bool] = mapped_column(Boolean, default=True)
     design_cost: Mapped[str] = mapped_column(String(8), default="ah", server_default="ah")  # ah | drop
+    # 涨点几率模型：formula=客户端公式（默认）；fixed=固定档位
+    prob_mode: Mapped[str] = mapped_column(String(16), default="formula", server_default="formula")
+    prob_orange: Mapped[float | None] = mapped_column(Float, nullable=True)
+    prob_yellow: Mapped[float | None] = mapped_column(Float, nullable=True)
+    prob_green: Mapped[float | None] = mapped_column(Float, nullable=True)
     steps: Mapped[str] = mapped_column(Text, default="[]")  # JSON 快照
     totals: Mapped[str] = mapped_column(Text, default="{}")  # JSON 快照
     is_public: Mapped[bool] = mapped_column(Boolean, default=True, index=True)

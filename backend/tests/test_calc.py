@@ -2,13 +2,22 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from app.config import get_settings
 from app.models import Recipe
 from app.schemas import CalcIn
-from app.services.calc import calc_route, effective_prices, fmt_copper
-from tests.conftest import add_price, make_item, make_profession, make_recipe, make_server
+from app.services.calc import (
+    _chance,
+    _expected_crafts,
+    calc_route,
+    effective_prices,
+    fmt_copper,
+    is_limited_vendor,
+)
+from tests.conftest import add_price, make_item, make_material_source, make_profession, make_recipe, make_server
 
 
 def _settings():
@@ -52,9 +61,58 @@ class TestEffectivePrices:
         assert effective_prices(db_session, server.id, "median")[9001] == 60
 
 
+class TestChanceModel:
+    """涨点几率：公式模式复现 WoW 经典客户端 (灰档-当前)/(灰档-黄档)。"""
+
+    def _view(self, orange=1, yellow=10, green=12, gray=15):
+        from app.services.calc import RecipeView
+
+        return RecipeView(
+            id=1,
+            product_item_id=None,
+            product_name="X",
+            product_qty=1,
+            is_new=False,
+            orange=orange,
+            yellow=yellow,
+            green=green,
+            gray=gray,
+            source_type="trainer",
+            source_item_id=None,
+        )
+
+    def test_formula_orange_is_full(self):
+        v = self._view()
+        assert _chance(v, 5, "formula", {}) == 1.0
+        assert _chance(v, 9.99, "formula", {}) == 1.0
+
+    def test_formula_linear_decay(self):
+        v = self._view()  # 黄10 绿12 灰15
+        assert _chance(v, 10, "formula", {}) == 1.0      # 刚变黄仍必涨
+        assert _chance(v, 12, "formula", {}) == 0.6      # (15-12)/(15-10)
+        assert _chance(v, 14, "formula", {}) == 0.2
+        assert _chance(v, 15, "formula", {}) == 0.0      # 灰档
+
+    def test_formula_expected_crafts(self):
+        v = self._view()
+        # 橙档 9 点 → 9 次
+        assert _expected_crafts(v, 1, 10, "formula", {}) == 9
+        # 黄档 2 点：1/1.0 + 1/0.8 = 2.25
+        assert _expected_crafts(v, 10, 12, "formula", {}) == pytest.approx(2.25)
+        # 绿档 3 点：1/0.6 + 1/0.4 + 1/0.2
+        assert _expected_crafts(v, 12, 15, "formula", {}) == pytest.approx(1 / 0.6 + 1 / 0.4 + 1 / 0.2)
+
+    def test_fixed_mode_uses_band_probs(self):
+        v = self._view()
+        probs = {"orange": 1.0, "yellow": 0.5, "green": 0.25}
+        assert _chance(v, 5, "fixed", probs) == 1.0
+        assert _chance(v, 11, "fixed", probs) == 0.5
+        assert _chance(v, 13, "fixed", probs) == 0.25
+
+
 class TestCalcRoute:
-    def test_single_recipe_bands(self, db_session):
-        """1→15 只有 A 可用：橙 9 次 + 黄 4 次 + 绿 12 次 = 25 次，净成本 0。"""
+    def test_single_recipe_bands_formula(self, db_session):
+        """1→15 只有 A 可用；公式模式：橙 9 + 黄 2.25 + 绿 9.17 ≈ 20.42 次。"""
         _prof, server, _ = _build_scenario(db_session)
         result = calc_route(
             db_session,
@@ -63,12 +121,32 @@ class TestCalcRoute:
         )
         assert [s["recipe_name"] for s in result["steps"]] == ["货品A"] * 3
         assert [s["band"] for s in result["steps"]] == ["orange", "yellow", "green"]
-        assert [s["crafts"] for s in result["steps"]] == [9, 4, 12]
-        assert result["totals"]["crafts"] == 25
+        assert [s["crafts"] for s in result["steps"]] == pytest.approx([9, 2.25, 1 / 0.6 + 1 / 0.4 + 1 / 0.2])
+        assert result["totals"]["crafts"] == pytest.approx(20.4166666, abs=1e-3)
         assert result["totals"]["net"] == 0  # 收入正好抵材料
 
+    def test_single_recipe_bands_fixed(self, db_session):
+        """fixed 模式（旧口径）：橙 9 + 黄 4 + 绿 12 = 25 次。"""
+        _prof, server, _ = _build_scenario(db_session)
+        result = calc_route(
+            db_session,
+            CalcIn(
+                server_id=server.id,
+                profession_key="test",
+                from_skill=1,
+                to_skill=15,
+                prob_mode="fixed",
+                prob_orange=1.0,
+                prob_yellow=0.5,
+                prob_green=0.25,
+            ),
+            _settings(),
+        )
+        assert [s["crafts"] for s in result["steps"]] == [9, 4, 12]
+        assert result["totals"]["crafts"] == 25
+
     def test_switch_by_cost(self, db_session):
-        """1→40：A 用到 15 灰，之后 B 比 C 便宜（B 黄档 300/点 < C 橙档 500/点）。"""
+        """1→40：公式模式下 B 绿档早期仍有性价比，(500-35)/(40-35)=300/点 < C 500/点。"""
         _prof, server, _ = _build_scenario(db_session)
         result = calc_route(
             db_session,
@@ -77,9 +155,28 @@ class TestCalcRoute:
         )
         names = [s["recipe_name"] for s in result["steps"]]
         assert names[:3] == ["货品A"] * 3
-        assert "货品B" in names and "货品C" in names
-        assert names[-1] == "货品C"  # 35 起 B 绿档 600/点 > C 橙档 500/点
+        assert "货品B" in names and "货品C" not in names  # 公式模式下全程 B 更优
+        assert names[-1] == "货品B"
         assert result["totals"]["net"] > 0
+
+    def test_switch_by_cost_fixed_prefers_c_late(self, db_session):
+        """fixed 模式（黄50/绿25）：35 起 B 绿档 600/点 > C 橙档 500/点 → 切 C。"""
+        _prof, server, _ = _build_scenario(db_session)
+        result = calc_route(
+            db_session,
+            CalcIn(
+                server_id=server.id,
+                profession_key="test",
+                from_skill=1,
+                to_skill=40,
+                prob_mode="fixed",
+                prob_yellow=0.5,
+                prob_green=0.25,
+            ),
+            _settings(),
+        )
+        names = [s["recipe_name"] for s in result["steps"]]
+        assert names[-1] == "货品C"
 
     def test_block_recipe_switches(self, db_session):
         _prof, server, _ = _build_scenario(db_session)
@@ -131,6 +228,67 @@ class TestCalcRoute:
         )
         assert result["steps"][0]["recipe_name"] == "货品B"
         assert result["steps"][0]["confirmed"] is True
+
+    def test_confirmed_count_limits_usage(self, db_session):
+        """确认配方默认 1 次：B 只做 1 次即退出（长 CD 语义），后续回到 A。"""
+        _prof, server, _ = _build_scenario(db_session)
+        b_id = db_session.query(Recipe).filter_by(product_name="货品B").one().id
+        result = calc_route(
+            db_session,
+            CalcIn(
+                server_id=server.id,
+                profession_key="test",
+                from_skill=10,
+                to_skill=15,
+                confirmed_recipe_ids=[b_id],
+            ),
+            _settings(),
+        )
+        b_steps = [s for s in result["steps"] if s["recipe_id"] == b_id]
+        assert len(b_steps) == 1
+        assert b_steps[0]["crafts"] == 1
+        assert any(e["reason"] == "确认次数已用完" for e in result["excluded"])
+        # 1 次 B 涨 1 点（10→11），其余交给 A
+        assert [s["recipe_name"] for s in result["steps"]] == ["货品B", "货品A", "货品A"]
+
+    def test_confirmed_count_multi(self, db_session):
+        """确认 5 次：B 连续 5 次（10→15 橙档各 1 点）。"""
+        _prof, server, _ = _build_scenario(db_session)
+        b_id = db_session.query(Recipe).filter_by(product_name="货品B").one().id
+        result = calc_route(
+            db_session,
+            CalcIn(
+                server_id=server.id,
+                profession_key="test",
+                from_skill=10,
+                to_skill=15,
+                confirmed_recipe_ids=[b_id],
+                confirmed_counts={b_id: 5},
+            ),
+            _settings(),
+        )
+        b_steps = [s for s in result["steps"] if s["recipe_id"] == b_id]
+        assert sum(s["crafts"] for s in b_steps) == 5
+
+    def test_recipe_disposition_override(self, db_session):
+        """单配方处置覆盖：B 改卖店（vendor 0）后收入为 0，A 仍走全局拍卖。"""
+        _prof, server, _ = _build_scenario(db_session)
+        b_id = db_session.query(Recipe).filter_by(product_name="货品B").one().id
+        result = calc_route(
+            db_session,
+            CalcIn(
+                server_id=server.id,
+                profession_key="test",
+                from_skill=10,
+                to_skill=40,
+                recipe_dispositions={b_id: "sell_npc"},
+            ),
+            _settings(),
+        )
+        b_steps = [s for s in result["steps"] if s["recipe_id"] == b_id]
+        assert b_steps and all(s["disposition"] == "sell_npc" for s in b_steps)
+        # B 无拍卖价也无卖店价 → 收入 0，净成本 = 材料费
+        assert all(s["revenue"] == 0 for s in b_steps)
 
     def test_missing_price_excluded(self, db_session):
         _prof, server, _ = _build_scenario(db_session)
@@ -192,8 +350,8 @@ class TestCalcRoute:
         assert len(design_steps) == 1
         assert design_steps[0]["design_cost"] == 500
         assert design_steps[0]["design_name"] == "设计图：一次性"
-        # 材料 = 25 次 × 10 + 图纸 500
-        assert result["totals"]["mat_cost"] == 25 * 10 + 500
+        # 期望制作 20.4167 次 × 10 + 图纸 500
+        assert result["totals"]["mat_cost"] == pytest.approx(500 + 10 * 20.4166666, abs=1e-3)
         # 材料清单里图纸单独一行、数量 1
         dline = [m for m in result["materials"] if m["kind"] == "design"]
         assert len(dline) == 1 and dline[0]["qty"] == 1 and dline[0]["cost"] == 500
@@ -221,7 +379,7 @@ class TestCalcRoute:
             _settings(),
         )
         assert all(s["design_cost"] == 0 for s in result["steps"])
-        assert result["totals"]["mat_cost"] == 25 * 10
+        assert result["totals"]["mat_cost"] == pytest.approx(10 * 20.4166666, abs=1e-3)
         assert not any("设计图" in w for w in result["warnings"])
 
     def test_design_missing_price_warns(self, db_session):
@@ -276,6 +434,84 @@ class TestCalcRoute:
                 CalcIn(server_id=server.id, profession_key="test", from_skill=40, to_skill=40),
                 _settings(),
             )
+
+
+class TestLimitedVendor:
+    """NPC 限量材料（草药等）：不采用 NPC 卖价，只认拍卖行。"""
+
+    def test_is_limited_vendor_by_type(self, db_session):
+        herb = make_item(db_session, 9650, "银叶草", type="Herb")
+        ore = make_item(db_session, 9651, "铜锭", type="Metal & Stone")
+        none_type = make_item(db_session, 9652, "无类型")
+        assert is_limited_vendor(herb) is True
+        assert is_limited_vendor(ore) is False
+        assert is_limited_vendor(none_type) is False
+        assert is_limited_vendor(None) is False
+
+    def test_herb_ignores_npc_price(self, db_session):
+        prof = make_profession(db_session, "herbprof", "草药专业")
+        herb = make_item(db_session, 9701, "地根草", vendor_price=20, type="Herb")
+        other = make_item(db_session, 9702, "普通材料", vendor_price=15)
+        prod = make_item(db_session, 9703, "草药剂")
+        # 购物清单把两者都标为商人出售
+        make_material_source(db_session, prof, herb, "vendor")
+        make_material_source(db_session, prof, other, "vendor")
+        make_recipe(db_session, prof, prod, "草药剂", [(herb, 2), (other, 1)], 1, 10, 12, 15)
+        server = make_server(db_session, "草药服")
+        add_price(db_session, server, herb, 100)   # 拍卖 100
+        add_price(db_session, server, other, 200)  # 拍卖 200（NPC 15 更便宜 → 取 15）
+        db_session.commit()
+
+        from app.services.calc import _load_recipes
+        from app.services.calc import effective_prices
+
+        prices = effective_prices(db_session, server.id, "latest", 0)
+        views, _ = _load_recipes(
+            db_session, prof, prices,
+            CalcIn(server_id=server.id, profession_key="herbprof", from_skill=1, to_skill=15),
+        )
+        assert len(views) == 1
+        v = views[0]
+        # 地根草：NPC 20 被忽略，按拍卖 100 ×2；普通材料：min(200, NPC 15)=15
+        assert v.mat_cost == 100 * 2 + 15
+        herb_line = next(m for m in v.mats if m.item_id == 9701)
+        assert herb_line.npc_limited is True
+        assert herb_line.npc_price is None  # 限量材料不展示 NPC 价
+
+    def test_herb_without_ah_price_excluded(self, db_session):
+        """草药只有 NPC 价、没导入拍卖价 → 配方不参与，原因标注限量。"""
+        prof = make_profession(db_session, "herbprof2", "草药专业2")
+        herb = make_item(db_session, 9801, "皇血草", vendor_price=30, type="Herb")
+        prod = make_item(db_session, 9802, "皇血药剂")
+        make_material_source(db_session, prof, herb, "vendor")
+        make_recipe(db_session, prof, prod, "皇血药剂", [(herb, 1)], 1, 10, 12, 15)
+        server = make_server(db_session, "草药服2")
+        db_session.commit()
+        result = calc_route(
+            db_session,
+            CalcIn(server_id=server.id, profession_key="herbprof2", from_skill=1, to_skill=15),
+            _settings(),
+        )
+        assert result["steps"] == []
+        assert any("NPC限量" in e["reason"] for e in result["excluded"])
+
+    def test_materials_list_marks_limited(self, db_session):
+        prof = make_profession(db_session, "herbprof3", "草药专业3")
+        herb = make_item(db_session, 9901, "跌打草", vendor_price=25, type="Herb")
+        prod = make_item(db_session, 9902, "跌打药剂")
+        make_material_source(db_session, prof, herb, "vendor")
+        make_recipe(db_session, prof, prod, "跌打药剂", [(herb, 1)], 1, 10, 12, 15)
+        server = make_server(db_session, "草药服3")
+        add_price(db_session, server, herb, 80)
+        db_session.commit()
+        result = calc_route(
+            db_session,
+            CalcIn(server_id=server.id, profession_key="herbprof3", from_skill=1, to_skill=15),
+            _settings(),
+        )
+        line = next(m for m in result["materials"] if m["item_id"] == 9901)
+        assert line["npc_limited"] is True
+        assert line["price_source"] == "ah"  # 只走拍卖行
 
 
 class TestFmtCopper:

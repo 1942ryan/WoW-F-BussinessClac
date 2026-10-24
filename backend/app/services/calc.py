@@ -1,13 +1,20 @@
 """冲级路线计算引擎。
 
 输入：服务器、专业、技能区间、价格口径（最新/中位数）、成品处置方式、
-      屏蔽/确认的配方与物品。
+      屏蔽/确认的配方与物品、涨点几率模型。
 输出：分阶段路线（每段：配方、次数、涨点概率、材料成本、成品收入）、
       材料汇总、警告与未参与计算的配方原因。
 
 算法：事件驱动贪心。每个事件点（当前最佳配方的黄/绿/灰阈值、其他配方解锁点、
-目标技能）重新评估「单位技能点净成本」最低的配方；用户确认采用的配方优先。
-涨点概率采用 WoW 经典近似值（橙 100% / 黄 50% / 绿 25% / 灰 0%）。
+目标技能）重新评估「单位技能点净成本」最低的配方；用户确认采用的配方优先
+（有次数上限，用尽后按长 CD 处理不再参与）。
+
+涨点几率（WoW 经典客户端机制，WowWiki 存档 + SkillUpProbability 插件实证）：
+- 橙档（当前技能 < 黄档）：100%
+- 黄/绿档：几率 = (灰档 - 当前技能) / (灰档 - 黄档)
+  → 刚变黄时仍接近 100%，到绿档时 50%，向灰档衰减至 0
+- 灰档：0%
+私服若自定义了几率，可在界面切到「固定档位」手动填写橙/黄/绿几率。
 """
 
 from __future__ import annotations
@@ -22,6 +29,24 @@ from sqlalchemy.orm import Session
 
 from ..models import Item, PriceRecord, Profession, Recipe, RecipeMaterial, MaterialSource
 from ..schemas import CalcIn
+
+
+# ---------- NPC 限量材料 ----------
+
+# NPC 只卖少量、冲级不能依靠的材料类型（小写）。草药是典型：草药学训练师
+# 旁边虽然能买到几棵，但存量极少，价格应按拍卖行计。
+LIMITED_VENDOR_TYPES = {"herb"}
+# 额外手工标注的限量物品 ID（私服若有其他限量货，按 ID 加进来即可）
+MANUAL_LIMITED_ITEM_IDS: set[int] = set()
+
+
+def is_limited_vendor(item: Item | None) -> bool:
+    """该物品是否为「NPC 限量供应」（不采用 NPC 卖价，只认拍卖行）。"""
+    if item is None:
+        return False
+    if item.id in MANUAL_LIMITED_ITEM_IDS:
+        return True
+    return (item.type or "").strip().lower() in LIMITED_VENDOR_TYPES
 
 
 # ---------- 工具 ----------
@@ -98,6 +123,7 @@ class MatLine:
     qty: int
     ah_price: int | None
     npc_price: int | None
+    npc_limited: bool = False  # NPC 限量（如草药），不采用 NPC 价
 
 
 @dataclass
@@ -121,6 +147,7 @@ class RecipeView:
     cost_per_point: float | None = None
     missing: list[str] = field(default_factory=list)  # 缺价格的材料名
     revenue_fallback: bool = False  # 拍卖行无价、按卖店价估算
+    disposition: str = "sell_ah"  # 本配方产物处置（全局或单配方覆盖）
     # 设计图配方：图纸一次性成本（学会即消耗，不随制作次数增加）
     design_cost: int = 0
     design_name: str | None = None
@@ -134,6 +161,59 @@ def _band(recipe: RecipeView, skill: int) -> str:
     if skill < recipe.green:
         return "yellow"
     return "green"
+
+
+def _chance(v: RecipeView, skill: float, mode: str, probs: dict[str, float]) -> float:
+    """当前技能下制作该配方的涨点几率。
+
+    formula：WoW 经典客户端公式 (灰档-当前)/(灰档-黄档)，橙档 100%。
+    fixed：按档位固定几率（用户自填，适用于自定义几率的私服）。
+    """
+    if mode == "fixed":
+        return probs[_band(v, skill)]
+    if skill < v.yellow:
+        return 1.0
+    if skill >= v.gray:
+        return 0.0
+    span = v.gray - v.yellow
+    if span <= 0:  # 源数据异常（黄≥灰），按橙档处理
+        return 1.0
+    return max(0.0, min(1.0, (v.gray - skill) / span))
+
+
+def _expected_crafts(v: RecipeView, s: float, target: float, mode: str, probs: dict[str, float]) -> float:
+    """从技能 s 到 target 的期望制作次数（每点按 1/几率 累加）。"""
+    crafts = 0.0
+    cur = float(s)
+    guard = 0
+    while cur < target - 1e-9:
+        p = _chance(v, cur, mode, probs)
+        if p <= 0:
+            return float("inf")
+        crafts += 1.0 / p
+        cur += 1.0
+        guard += 1
+        if guard > 400:  # 防御：区间不可能超过 375
+            return float("inf")
+    return crafts
+
+
+def _points_after_crafts(
+    v: RecipeView, s: float, n: float, mode: str, probs: dict[str, float], cap_to: float
+) -> float:
+    """制作 n 次后的期望涨点数（用于确认次数用尽、段未走完的情况）。"""
+    cur = float(s)
+    gained = 0.0
+    left = float(n)
+    while left >= 1.0 and cur < cap_to - 1e-9:
+        p = _chance(v, cur, mode, probs)
+        if p <= 0:
+            break
+        step = min(p, cap_to - cur)
+        gained += step
+        cur += step
+        left -= 1.0
+    return min(gained, cap_to - s)
 
 
 def _load_recipes(
@@ -187,6 +267,7 @@ def _load_recipes(
     blocked_recipes = set(params.blocked_recipe_ids)
     blocked_items = set(params.blocked_item_ids)
     confirmed = set(params.confirmed_recipe_ids)
+    disp_overrides = dict(params.recipe_dispositions or {})
 
     views: list[RecipeView] = []
     excluded: list[dict] = []
@@ -240,7 +321,8 @@ def _load_recipes(
                 missing.append(f"{name}(已屏蔽)")
                 continue
             ah = prices.get(m.item_id)
-            npc = items[m.item_id].vendor_price if vendor_flag.get(m.item_id) else None
+            limited = is_limited_vendor(item)
+            npc = item.vendor_price if (vendor_flag.get(m.item_id) and not limited) else None
             unit = None
             if ah is not None and npc is not None:
                 unit = min(ah, npc)
@@ -249,7 +331,10 @@ def _load_recipes(
             elif npc is not None:
                 unit = npc
             if unit is None:
-                missing.append(name)
+                if limited and ah is None:
+                    missing.append(f"{name}(NPC限量,需拍卖行价格)")
+                else:
+                    missing.append(name)
                 continue
             view.mats.append(
                 MatLine(
@@ -259,6 +344,7 @@ def _load_recipes(
                     qty=m.qty,
                     ah_price=ah,
                     npc_price=npc,
+                    npc_limited=limited,
                 )
             )
             mat_cost += unit * m.qty
@@ -275,10 +361,12 @@ def _load_recipes(
             continue
         view.mat_cost = mat_cost
 
-        # 成品收入
+        # 成品收入（处置方式：全局默认，单配方可覆盖）
+        disposition = disp_overrides.get(r.id) or params.product_disposition
+        view.disposition = disposition
         revenue = 0
         if r.product_item_id:
-            if params.product_disposition == "sell_ah":
+            if disposition == "sell_ah":
                 ah = prices.get(r.product_item_id)
                 if ah is not None:
                     revenue = ah * r.product_qty
@@ -286,7 +374,7 @@ def _load_recipes(
                     vp = items[r.product_item_id].vendor_price
                     revenue = vp * r.product_qty
                     view.revenue_fallback = vp > 0
-            elif params.product_disposition == "sell_npc":
+            elif disposition == "sell_npc":
                 vp = items[r.product_item_id].vendor_price
                 revenue = vp * r.product_qty
             # self_use → 0
@@ -324,41 +412,51 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
     views, excluded = _load_recipes(db, profession, prices, params)
 
     probs = {
-        "orange": settings.prob_orange,
-        "yellow": settings.prob_yellow,
-        "green": settings.prob_green,
+        "orange": params.prob_orange if params.prob_orange is not None else settings.prob_orange,
+        "yellow": params.prob_yellow if params.prob_yellow is not None else settings.prob_yellow,
+        "green": params.prob_green if params.prob_green is not None else settings.prob_green,
     }
 
-    # 单位技能点净成本（用于贪心排序）
-    for v in views:
-        v.cost_per_point = None  # 依赖当前技能档，运行时计算
+    # 确认配法的剩余制作次数（浮点：公式模式下期望次数可能是小数）
+    remaining: dict[int, float] = {}
+    for rid in params.confirmed_recipe_ids:
+        cnt = (params.confirmed_counts or {}).get(rid, 1)
+        if cnt >= 1:  # 次数 ≤0 视为未确认（不优先、不限额）
+            remaining[rid] = float(cnt)
+    exhausted: set[int] = set()  # 确认次数已用完（按 CD 限制退出计算）
+    skip: set[int] = set()  # 当前区间内不可行（几率 0 等）的配方
 
-    confirmed = set(params.confirmed_recipe_ids)
     design_paid: set[int] = set()  # 已计入一次性图纸成本的配方
     steps: list[dict] = []
     mat_totals: dict[int, dict] = {}
     warnings: list[str] = []
-    total_crafts = 0
+    total_crafts = 0.0
     total_mat = 0
     total_rev = 0
-    skill = params.from_skill
+    skill = float(params.from_skill)
 
-    def unit_cost(v: RecipeView, s: int) -> float:
-        band = _band(v, s)
-        prob = probs[band]
-        if prob <= 0:
+    def chance(v: RecipeView, s: float) -> float:
+        return _chance(v, s, params.prob_mode, probs)
+
+    def unit_cost(v: RecipeView, s: float) -> float:
+        p = chance(v, s)
+        if p <= 0:
             return float("inf")
-        return v.net / prob
+        return v.net / p
 
-    while skill < params.to_skill:
-        available = [v for v in views if v.orange <= skill < v.gray]
+    while skill < params.to_skill - 1e-9:
+        available = [
+            v
+            for v in views
+            if v.orange <= skill < v.gray and v.id not in exhausted and v.id not in skip
+        ]
         if not available:
             warnings.append(
-                f"技能 {skill} 起无可用配方"
-                "（材料无拍卖行/NPC 价格，或可用配方均被屏蔽）"
+                f"技能 {int(round(skill))} 起无可用配方"
+                "（材料无拍卖行/NPC 价格，或可用配方均被屏蔽/次数用尽）"
             )
             break
-        conf_pool = [v for v in available if v.id in confirmed]
+        conf_pool = [v for v in available if v.id in remaining and remaining[v.id] >= 0.5]
         pool = conf_pool if conf_pool else available
         best = min(pool, key=lambda v: (unit_cost(v, skill), v.gray, v.id))
 
@@ -368,9 +466,43 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
         seg_to = min([*events, params.to_skill])
 
         band = _band(best, skill)
-        prob = probs[band]
+        prob = chance(best, skill)
         points = seg_to - skill
-        crafts = max(1, math.ceil(points / prob))
+
+        # 期望制作次数：fixed=按档位恒定几率；formula=逐点 1/几率 累加
+        if params.prob_mode == "fixed":
+            crafts = math.ceil(points / prob) if prob > 0 else float("inf")
+        else:
+            crafts = _expected_crafts(best, skill, seg_to, params.prob_mode, probs)
+        if not math.isfinite(crafts):
+            # 该配方在此区间几率过低/为 0，跳过重选
+            skip.add(best.id)
+            continue
+
+        # 确认配方次数上限（长 CD 配方：一个查询周期内只能做 N 次）
+        capped = False
+        if best.id in remaining:
+            cap = remaining[best.id]
+            if cap < crafts:
+                crafts = cap
+                capped = True
+
+        if crafts < 1e-9:
+            exhausted.add(best.id)
+            excluded.append(
+                {
+                    "recipe_id": best.id,
+                    "name": best.product_name,
+                    "reason": "确认次数已用完",
+                }
+            )
+            continue
+
+        # 段末几率（公式模式下随技能衰减；fixed 下与段首相同）
+        if params.prob_mode == "fixed":
+            prob_end = prob
+        else:
+            prob_end = chance(best, max(skill, seg_to - 1.0))
 
         step_net = best.net * crafts
         step_mat = best.mat_cost * crafts
@@ -402,21 +534,29 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
                 agg["qty"] += 1
         step_mat += step_design_cost
 
+        # 技能推进：未截断时整段走完；被确认次数截断时按期望涨点推进
+        if capped:
+            gained = _points_after_crafts(best, skill, crafts, params.prob_mode, probs, params.to_skill)
+        else:
+            gained = points
+
         steps.append(
             {
                 "skill_from": skill,
-                "skill_to": seg_to,
+                "skill_to": skill + gained,
                 "recipe_id": best.id,
                 "recipe_name": best.product_name,
                 "product_item_id": best.product_item_id,
                 "product_icon": best.product_icon,
                 "crafts": crafts,
                 "prob": prob,
+                "prob_end": prob_end,
                 "band": band,
+                "disposition": best.disposition,
                 "mat_cost": step_mat,
                 "revenue": step_rev,
                 "net": step_net,
-                "confirmed": best.id in confirmed,
+                "confirmed": best.id in remaining,
                 "source_type": best.source_type,
                 "design_cost": step_design_cost,
                 "design_name": step_design_name,
@@ -436,7 +576,21 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
         total_crafts += crafts
         total_mat += step_mat
         total_rev += step_rev
-        skill = seg_to
+        skill = skill + gained
+
+        # 确认次数消耗
+        if best.id in remaining:
+            remaining[best.id] -= crafts
+            if remaining[best.id] < 0.5:
+                remaining.pop(best.id, None)
+                exhausted.add(best.id)
+                excluded.append(
+                    {
+                        "recipe_id": best.id,
+                        "name": best.product_name,
+                        "reason": "确认次数已用完",
+                    }
+                )
 
     # 合并相邻的「同配方 + 同档位」步骤（事件点切分过细，合并后更易读）
     merged_steps: list[dict] = []
@@ -446,7 +600,7 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
             last
             and last["recipe_id"] == st["recipe_id"]
             and last["band"] == st["band"]
-            and last["skill_to"] == st["skill_from"]
+            and abs(last["skill_to"] - st["skill_from"]) < 0.01
         ):
             last["skill_to"] = st["skill_to"]
             last["crafts"] += st["crafts"]
@@ -466,6 +620,7 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
         ah = prices.get(item_id)
         # NPC 价：从配方行反推较麻烦，这里直接查一次
         npc = None
+        limited = False
         if agg.get("kind") != "design":
             ms_kind = db.execute(
                 select(MaterialSource.kind).where(
@@ -473,8 +628,9 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
                     MaterialSource.item_id == item_id,
                 )
             ).scalar_one_or_none()
-            if ms_kind == "vendor":
-                item = db.get(Item, item_id)
+            item = db.get(Item, item_id)
+            limited = is_limited_vendor(item)
+            if ms_kind == "vendor" and not limited:
                 npc = item.vendor_price if item else None
         unit = None
         source = None
@@ -494,6 +650,7 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
                 "price_source": source,
                 "cost": unit * agg["qty"] if unit is not None else None,
                 "kind": agg.get("kind", "material"),
+                "npc_limited": limited,
             }
         )
     materials.sort(key=lambda m: (m["cost"] is None, -(m["cost"] or 0)))

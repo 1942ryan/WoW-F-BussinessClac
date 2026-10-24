@@ -138,6 +138,8 @@ table.grid tr.used td { background: #f0f7ec; }
 .tag.band-g { background: #eef3e6; color: #5a7a3a; }
 .tag.confirmed { background: var(--gold); color: #fff; }
 .tag.blocked { background: #e5e5e5; color: #777; text-decoration: line-through; }
+.tag.limited { background: #fdeef0; color: #a03048; border: 1px solid #f0bcc4; cursor: help; }
+.tag.disp { background: #eef0f4; color: #4a5568; }
 
 .muted { color: var(--muted); }
 .money { font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -161,9 +163,20 @@ table.grid tr.used td { background: #f0f7ec; }
   transition: all 0.15s;
 }
 .prof-card:hover { border-color: var(--gold); box-shadow: 0 2px 8px rgba(184, 134, 11, 0.18); transform: translateY(-1px); }
-.prof-card .icon { font-size: 26px; }
+.prof-card .icon { font-size: 26px; display: flex; justify-content: center; min-height: 36px; align-items: center; }
 .prof-card .name { font-weight: 600; margin-top: 6px; }
 .prof-card .count { font-size: 12px; color: var(--muted); }
+
+/* ---- 规划页两栏布局（左：参数 / 右：结果优先） ---- */
+.plan-layout { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 16px; align-items: start; }
+.plan-side { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow-y: auto; }
+.plan-side .panel { margin-bottom: 12px; }
+.plan-main { min-width: 0; }
+.plan-main .panel { margin-bottom: 16px; }
+@media (max-width: 1020px) {
+  .plan-layout { grid-template-columns: 1fr; }
+  .plan-side { position: static; max-height: none; }
+}
 
 .alert { border-radius: 6px; padding: 10px 12px; font-size: 13px; margin: 8px 0; }
 .alert.warn { background: #fff8e1; border: 1px solid #f0d890; color: #7a5c00; }

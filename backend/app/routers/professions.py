@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -10,7 +12,7 @@ from ..config import get_settings
 from ..database import get_db
 from ..models import Item, MaterialSource, Profession, Recipe, RecipeMaterial
 from ..schemas import MaterialOut, ProfessionOut, RecipeOut, WatchlistItemOut, WatchlistOut
-from ..services.calc import effective_prices
+from ..services.calc import effective_prices, is_limited_vendor
 
 router = APIRouter(prefix="/professions", tags=["professions"])
 
@@ -95,6 +97,7 @@ def list_professions(db: Session = Depends(get_db)) -> list[ProfessionOut]:
             id=p.id,
             key=p.key,
             name=p.name,
+            icon=p.icon,
             recipe_count=counts.get(p.id, 0),
             max_skill=max_skills.get(p.id) or 0,
         )
@@ -108,6 +111,7 @@ def list_recipes(
     server_id: int | None = Query(default=None, description="提供后附带价格与成本"),
     price_mode: str = Query(default="latest", pattern="^(latest|median)$"),
     disposition: str = Query(default="sell_ah", pattern="^(sell_ah|sell_npc|self_use)$"),
+    recipe_dispositions: str | None = Query(default=None, description="单配方处置覆盖 JSON"),
     from_skill: int | None = Query(default=None, ge=0),
     to_skill: int | None = Query(default=None, ge=0),
     db: Session = Depends(get_db),
@@ -115,6 +119,14 @@ def list_recipes(
     prof = db.execute(select(Profession).where(Profession.key == key)).scalar_one_or_none()
     if prof is None:
         raise HTTPException(404, f"专业不存在: {key}")
+
+    disp_overrides: dict[int, str] = {}
+    if recipe_dispositions:
+        try:
+            raw = json.loads(recipe_dispositions)
+            disp_overrides = {int(k): v for k, v in raw.items()}
+        except (ValueError, TypeError):
+            raise HTTPException(400, "recipe_dispositions 需为 JSON 对象")
 
     prices: dict[int, int] = {}
     if server_id:
@@ -171,7 +183,12 @@ def list_recipes(
         for m in mats_by_recipe.get(r.id, []):
             item = items.get(m.item_id)
             ah = prices.get(m.item_id)
-            npc = item.vendor_price if (item and vendor_flags.get(m.item_id)) else None
+            limited = is_limited_vendor(item)
+            npc = (
+                item.vendor_price
+                if (item and vendor_flags.get(m.item_id) and not limited)
+                else None
+            )
             unit, source = None, None
             if ah is not None and npc is not None:
                 unit, source = (ah, "ah") if ah <= npc else (npc, "npc")
@@ -192,13 +209,15 @@ def list_recipes(
                     unit_price=unit,
                     price_source=source,
                     line_cost=unit * m.qty if unit is not None else None,
+                    npc_limited=limited,
                 )
             )
         revenue = None
+        disp = disp_overrides.get(r.id) or disposition
         if price_ok and r.product_item_id:
-            if disposition == "sell_ah":
+            if disp == "sell_ah":
                 revenue = (prices.get(r.product_item_id) or items[r.product_item_id].vendor_price) * r.product_qty
-            elif disposition == "sell_npc":
+            elif disp == "sell_npc":
                 revenue = items[r.product_item_id].vendor_price * r.product_qty
             else:
                 revenue = 0

@@ -12,6 +12,7 @@ export interface Profession {
   id: number;
   key: string;
   name: string;
+  icon?: string | null;
   recipe_count: number;
   max_skill: number;
 }
@@ -24,6 +25,7 @@ export interface MaterialLine {
   unit_price: number | null;
   price_source: "ah" | "npc" | null;
   line_cost: number | null;
+  npc_limited?: boolean;
 }
 
 export interface Recipe {
@@ -101,7 +103,9 @@ export interface CalcStep {
   product_icon?: string | null;
   crafts: number;
   prob: number;
+  prob_end?: number | null;
   band: string;
+  disposition?: string | null;
   mat_cost: number;
   revenue: number;
   net: number;
@@ -120,6 +124,7 @@ export interface MaterialTotal {
   price_source: string | null;
   cost: number | null;
   kind?: string;
+  npc_limited?: boolean;
 }
 
 export interface CalcTotals {
@@ -130,18 +135,27 @@ export interface CalcTotals {
   net_display: string;
 }
 
+export type Disposition = "sell_ah" | "sell_npc" | "self_use";
+export type ProbMode = "formula" | "fixed";
+
 export interface CalcParams {
   server_id: number;
   profession_key: string;
   from_skill: number;
   to_skill: number;
   price_mode: "latest" | "median";
-  product_disposition: "sell_ah" | "sell_npc" | "self_use";
+  product_disposition: Disposition;
   blocked_recipe_ids: number[];
   blocked_item_ids: number[];
   confirmed_recipe_ids: number[];
+  confirmed_counts?: Record<string, number>;
+  recipe_dispositions?: Record<string, Disposition>;
   include_designs: boolean;
   design_cost: "ah" | "drop";
+  prob_mode?: ProbMode;
+  prob_orange?: number | null;
+  prob_yellow?: number | null;
+  prob_green?: number | null;
 }
 
 export interface CalcResult {
@@ -181,6 +195,7 @@ export interface RouteListItem {
   from_skill: number;
   to_skill: number;
   price_mode: string;
+  net: number;
   net_display: string;
   is_public: boolean;
   created_at: string | null;

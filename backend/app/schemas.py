@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 PriceMode = Literal["latest", "median"]
 Disposition = Literal["sell_ah", "sell_npc", "self_use"]
 DesignCost = Literal["ah", "drop"]
+ProbMode = Literal["formula", "fixed"]
 
 
 # ---------- 通用 ----------
@@ -50,6 +51,7 @@ class ProfessionOut(BaseModel):
     id: int
     key: str
     name: str
+    icon: str | None = None  # 图标 URL
     recipe_count: int = 0
     max_skill: int = 0
 
@@ -64,6 +66,7 @@ class MaterialOut(BaseModel):
     unit_price: int | None = None  # 铜；None=无价格
     price_source: str | None = None  # ah | npc | None
     line_cost: int | None = None  # qty * unit_price
+    npc_limited: bool = False  # NPC 限量供应（如草药），不采用 NPC 价
 
 
 class RecipeOut(BaseModel):
@@ -152,9 +155,19 @@ class CalcIn(BaseModel):
     blocked_recipe_ids: list[int] = []
     blocked_item_ids: list[int] = []
     confirmed_recipe_ids: list[int] = []
+    # 确认配方的制作次数 {recipe_id: count}；未列出的确认配方默认 1 次
+    confirmed_counts: dict[int, int] = {}
+    # 单配方产物处置覆盖 {recipe_id: sell_ah|sell_npc|self_use}；未列出的跟随全局
+    recipe_dispositions: dict[int, Disposition] = {}
     include_designs: bool = True
     # 设计图获取方式：ah=AH 可购买，图纸价计入冲级成本；drop=掉落获得，不计成本
     design_cost: DesignCost = "ah"
+    # 涨点几率模型：formula=客户端公式 (灰档-当前)/(灰档-黄档)；fixed=固定档位
+    prob_mode: ProbMode = "formula"
+    # fixed 模式下的档位几率（0~1），缺省用服务端配置（橙100/黄50/绿25）
+    prob_orange: float | None = Field(default=None, ge=0, le=1)
+    prob_yellow: float | None = Field(default=None, ge=0, le=1)
+    prob_green: float | None = Field(default=None, ge=0, le=1)
 
 
 class CalcStepOut(BaseModel):
@@ -164,12 +177,14 @@ class CalcStepOut(BaseModel):
     recipe_name: str
     product_item_id: int | None
     product_icon: str | None = None  # 成品图标 URL
-    crafts: int
+    crafts: float  # 期望制作次数（公式模式可能是小数，展示时取整）
     prob: float
+    prob_end: float | None = None  # 段末几率（公式模式下与 prob 不同）
     band: str  # orange | yellow | green
-    mat_cost: int
-    revenue: int
-    net: int
+    disposition: str | None = None  # 本段产物处置
+    mat_cost: float
+    revenue: float
+    net: float
     confirmed: bool
     source_type: str
     design_cost: int = 0  # 本段一次性设计图成本（铜，AH 购买时）
@@ -180,18 +195,19 @@ class MaterialTotalOut(BaseModel):
     item_id: int
     name: str
     icon: str | None = None  # 图标 URL
-    qty: int
+    qty: float
     unit_price: int | None
     price_source: str | None
-    cost: int | None
+    cost: float | None
     kind: str = "material"  # material | design
+    npc_limited: bool = False  # NPC 限量供应，只按拍卖行计价
 
 
 class CalcTotalsOut(BaseModel):
-    crafts: int
-    mat_cost: int
-    revenue: int
-    net: int
+    crafts: float
+    mat_cost: float
+    revenue: float
+    net: float
     net_display: str
 
 
@@ -222,8 +238,14 @@ class RouteSaveIn(BaseModel):
     blocked_recipe_ids: list[int] = []
     blocked_item_ids: list[int] = []
     confirmed_recipe_ids: list[int] = []
+    confirmed_counts: dict[int, int] = {}
+    recipe_dispositions: dict[int, Disposition] = {}
     include_designs: bool = True
     design_cost: DesignCost = "ah"
+    prob_mode: ProbMode = "formula"
+    prob_orange: float | None = Field(default=None, ge=0, le=1)
+    prob_yellow: float | None = Field(default=None, ge=0, le=1)
+    prob_green: float | None = Field(default=None, ge=0, le=1)
     is_public: bool = True
 
 
@@ -256,6 +278,7 @@ class RouteListItemOut(BaseModel):
     from_skill: int
     to_skill: int
     price_mode: str
+    net: float = 0
     net_display: str
     is_public: bool
     created_at: datetime | None = None

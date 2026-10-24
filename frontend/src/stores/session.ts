@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
-import type { CalcParams } from "@/types";
+import type { CalcParams, Disposition, ProbMode } from "@/types";
 
 const LS_KEY = "wowfc-session-v1";
 
@@ -11,12 +11,21 @@ interface SessionState {
   fromSkill: number;
   toSkill: number;
   priceMode: "latest" | "median";
-  disposition: "sell_ah" | "sell_npc" | "self_use";
+  disposition: Disposition;
   includeDesigns: boolean;
   designCost: "ah" | "drop";
   blockedRecipeIds: number[];
   blockedItemIds: number[];
   confirmedRecipeIds: number[];
+  /** 确认配方的制作次数 {recipeId: count}，默认 1（长 CD 配方手填） */
+  confirmedCounts: Record<string, number>;
+  /** 单配方产物处置覆盖 {recipeId: 处置}，缺省跟随全局 */
+  recipeDispositions: Record<string, Disposition>;
+  /** 涨点几率模型：formula=客户端公式；fixed=固定档位 */
+  probMode: ProbMode;
+  probOrange: number;
+  probYellow: number;
+  probGreen: number;
 }
 
 function load(): SessionState {
@@ -43,6 +52,12 @@ function defaults(): SessionState {
     blockedRecipeIds: [],
     blockedItemIds: [],
     confirmedRecipeIds: [],
+    confirmedCounts: {},
+    recipeDispositions: {},
+    probMode: "formula",
+    probOrange: 100,
+    probYellow: 50,
+    probGreen: 25,
   };
 }
 
@@ -75,7 +90,7 @@ export const useSessionStore = defineStore("session", () => {
     persist();
   }
 
-  function setDisposition(d: "sell_ah" | "sell_npc" | "self_use") {
+  function setDisposition(d: Disposition) {
     state.value.disposition = d;
     persist();
   }
@@ -90,6 +105,18 @@ export const useSessionStore = defineStore("session", () => {
     persist();
   }
 
+  function setProbMode(m: ProbMode) {
+    state.value.probMode = m;
+    persist();
+  }
+
+  function setProb(kind: "orange" | "yellow" | "green", pct: number) {
+    if (!Number.isFinite(pct)) return;
+    const key = `prob${kind[0].toUpperCase()}${kind.slice(1)}` as "probOrange";
+    state.value[key] = pct;
+    persist();
+  }
+
   function toggleBlockRecipe(id: number) {
     const arr = state.value.blockedRecipeIds;
     state.value.blockedRecipeIds = arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id];
@@ -99,7 +126,35 @@ export const useSessionStore = defineStore("session", () => {
   function toggleConfirmRecipe(id: number) {
     const arr = state.value.confirmedRecipeIds;
     state.value.confirmedRecipeIds = arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id];
+    if (!state.value.confirmedRecipeIds.includes(id)) {
+      delete state.value.confirmedCounts[String(id)];
+    } else if (state.value.confirmedCounts[String(id)] === undefined) {
+      state.value.confirmedCounts[String(id)] = 1; // 默认 1 次
+    }
     persist();
+  }
+
+  function setConfirmedCount(id: number, count: number) {
+    const n = Math.max(1, Math.round(count) || 1);
+    state.value.confirmedCounts[String(id)] = n;
+    persist();
+  }
+
+  function confirmedCountOf(id: number): number {
+    return state.value.confirmedCounts[String(id)] ?? 1;
+  }
+
+  function setRecipeDisposition(id: number, d: Disposition | "") {
+    if (d === "") {
+      delete state.value.recipeDispositions[String(id)];
+    } else {
+      state.value.recipeDispositions[String(id)] = d;
+    }
+    persist();
+  }
+
+  function recipeDispositionOf(id: number): Disposition | "" {
+    return state.value.recipeDispositions[String(id)] ?? "";
   }
 
   function toggleBlockItem(id: number) {
@@ -112,6 +167,7 @@ export const useSessionStore = defineStore("session", () => {
     state.value.blockedRecipeIds = [];
     state.value.blockedItemIds = [];
     state.value.confirmedRecipeIds = [];
+    state.value.confirmedCounts = {};
     persist();
   }
 
@@ -125,6 +181,12 @@ export const useSessionStore = defineStore("session", () => {
     state.value.blockedRecipeIds = [...p.blocked_recipe_ids];
     state.value.blockedItemIds = [...p.blocked_item_ids];
     state.value.confirmedRecipeIds = [...p.confirmed_recipe_ids];
+    state.value.confirmedCounts = { ...(p.confirmed_counts ?? {}) };
+    state.value.recipeDispositions = { ...(p.recipe_dispositions ?? {}) };
+    if (p.prob_mode) state.value.probMode = p.prob_mode;
+    if (p.prob_orange != null) state.value.probOrange = p.prob_orange * 100;
+    if (p.prob_yellow != null) state.value.probYellow = p.prob_yellow * 100;
+    if (p.prob_green != null) state.value.probGreen = p.prob_green * 100;
     persist();
   }
 
@@ -139,8 +201,14 @@ export const useSessionStore = defineStore("session", () => {
       blocked_recipe_ids: state.value.blockedRecipeIds,
       blocked_item_ids: state.value.blockedItemIds,
       confirmed_recipe_ids: state.value.confirmedRecipeIds,
+      confirmed_counts: { ...state.value.confirmedCounts },
+      recipe_dispositions: { ...state.value.recipeDispositions },
       include_designs: state.value.includeDesigns,
       design_cost: state.value.designCost,
+      prob_mode: state.value.probMode,
+      prob_orange: state.value.probOrange / 100,
+      prob_yellow: state.value.probYellow / 100,
+      prob_green: state.value.probGreen / 100,
     };
   }
 
@@ -154,8 +222,14 @@ export const useSessionStore = defineStore("session", () => {
     setDisposition,
     setIncludeDesigns,
     setDesignCost,
+    setProbMode,
+    setProb,
     toggleBlockRecipe,
     toggleConfirmRecipe,
+    setConfirmedCount,
+    confirmedCountOf,
+    setRecipeDisposition,
+    recipeDispositionOf,
     toggleBlockItem,
     clearOverrides,
     applyParams,

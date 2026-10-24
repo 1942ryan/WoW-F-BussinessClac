@@ -28,10 +28,17 @@ export const api = {
 
   // 专业与配方
   listProfessions: () => http.get<Profession[]>("/professions").then((r) => r.data),
-  listRecipes: (key: string, serverId: number, mode: string, disposition: string) =>
+  listRecipes: (key: string, serverId: number, mode: string, disposition: string, recipeDispositions?: Record<string, string>) =>
     http
       .get<Recipe[]>(`/professions/${key}/recipes`, {
-        params: { server_id: serverId, price_mode: mode, disposition },
+        params: {
+          server_id: serverId,
+          price_mode: mode,
+          disposition,
+          recipe_dispositions: recipeDispositions && Object.keys(recipeDispositions).length
+            ? JSON.stringify(recipeDispositions)
+            : undefined,
+        },
       })
       .then((r) => r.data),
   watchlist: (key: string, fromSkill?: number, toSkill?: number) =>

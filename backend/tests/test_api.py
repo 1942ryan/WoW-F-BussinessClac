@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 CSV_UTF8 = "物品名称,单价\n铜锭,25\n铁锭,80\n不存在的东西,999\n".encode("utf-8")
 
 
@@ -78,7 +80,8 @@ def test_import_and_calc_and_share_flow(client, db_session):
     assert len(calc["steps"]) == 3  # 1→10 橙、10→12 黄、12→15 绿
     assert calc["steps"][0]["recipe_name"] == "货品A"
     assert calc["steps"][0]["crafts"] == 9  # 橙档 100%，需 9 点
-    assert calc["totals"]["crafts"] == 25
+    # 公式模式总期望次数：9 + (1/1.0+1/0.8) + (1/0.6+1/0.4+1/0.2)
+    assert calc["totals"]["crafts"] == pytest.approx(20.4166666, abs=1e-3)
 
     # 保存路线
     r = client.post(

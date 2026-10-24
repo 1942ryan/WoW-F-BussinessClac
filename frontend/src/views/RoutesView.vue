@@ -28,7 +28,7 @@
           <td>{{ r.author ?? "匿名" }}</td>
           <td class="money">{{ r.from_skill }} → {{ r.to_skill }}</td>
           <td>{{ r.price_mode === "latest" ? "最新" : "中位数" }}</td>
-          <td class="num money" :class="r.net_display.startsWith('-') ? 'pos' : 'neg'">{{ r.net_display }}</td>
+          <td class="num money" :class="r.net < 0 ? 'pos' : 'neg'"><Money :value="r.net" /></td>
           <td class="muted">{{ r.created_at ? new Date(r.created_at).toLocaleDateString("zh-CN") : "—" }}</td>
           <td><button class="btn small" @click="openDetail(r)">查看 / 采用</button></td>
         </tr>
@@ -47,8 +47,8 @@
       <div v-if="detail.notes" style="margin-top: 6px">备注：{{ detail.notes }}</div>
 
       <div class="summary-cards">
-        <div class="card"><div class="k">总制作</div><div class="v">{{ detail.totals.crafts }}</div></div>
-        <div class="card"><div class="k">净成本</div><div class="v money">{{ detail.totals.net_display }}</div></div>
+        <div class="card"><div class="k">总制作</div><div class="v">{{ Math.round(detail.totals.crafts) }}</div></div>
+        <div class="card"><div class="k">净成本</div><div class="v"><Money :value="detail.totals.net" :size="14" /></div></div>
         <div class="card"><div class="k">分享码</div><div class="v" style="font-size: 14px">{{ detail.share_code }}</div></div>
       </div>
 
@@ -59,16 +59,16 @@
         </thead>
         <tbody>
           <tr v-for="(s, i) in detail.steps" :key="i">
-            <td class="money">{{ s.skill_from }} → {{ s.skill_to }}</td>
+            <td class="money">{{ Math.round(s.skill_from) }} → {{ Math.round(s.skill_to) }}</td>
             <td>
               <span class="flex" style="gap: 6px">
                 <ItemIcon :icon="s.product_icon" :name="s.recipe_name" :size="22" />
                 <span>{{ s.recipe_name }}</span>
               </span>
             </td>
-            <td class="num">{{ s.crafts }}</td>
-            <td>{{ s.band === "orange" ? "橙" : s.band === "yellow" ? "黄" : "绿" }} {{ Math.round(s.prob * 100) }}%</td>
-            <td class="num money" :class="s.net < 0 ? 'pos' : ''">{{ fmt(s.net) }}</td>
+            <td class="num">{{ Math.round(s.crafts) }}</td>
+            <td>{{ s.band === "orange" ? "橙" : s.band === "yellow" ? "黄" : "绿" }} {{ probLabel(s) }}</td>
+            <td class="num money" :class="s.net < 0 ? 'pos' : ''"><Money :value="s.net" /></td>
           </tr>
         </tbody>
       </table>
@@ -83,8 +83,10 @@
                 <ItemIcon :icon="m.icon" :name="m.name" :size="22" />
                 <span>{{ m.name }}</span>
               </span>
-            </td><td class="num">{{ m.qty }}</td>
-            <td class="num money">{{ m.cost !== null ? fmt(m.cost) : "—" }}</td>
+              <span v-if="m.npc_limited" class="tag limited"
+                    title="NPC 限量供应（如草药），已按拍卖行计价">限量</span>
+            </td><td class="num">{{ Math.round(m.qty) }}</td>
+            <td class="num money"><Money v-if="m.cost !== null" :value="m.cost" /><span v-else>—</span></td>
           </tr>
         </tbody>
       </table>
@@ -94,8 +96,9 @@
         <button class="btn" @click="detail = null">关闭</button>
       </div>
       <div v-if="recalc" class="alert info" style="margin-top: 10px">
-        按你服务器当前价格重算：总制作 {{ recalc.totals.crafts }} 次，净成本 {{ recalc.totals.net_display }}
-        （保存时为 {{ detail.totals.net_display }}）。参数与屏蔽/确认设置已载入冲级计划页。
+        按你服务器当前价格重算：总制作 {{ Math.round(recalc.totals.crafts) }} 次，净成本
+        <Money :value="recalc.totals.net" />
+        （保存时为 <Money :value="detail.totals.net" />）。参数与屏蔽/确认设置已载入冲级计划页。
       </div>
     </div>
   </div>
@@ -106,8 +109,9 @@ import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { api } from "@/api/client";
 import ItemIcon from "@/components/ItemIcon.vue";
+import Money from "@/components/Money.vue";
 import { useSessionStore } from "@/stores/session";
-import type { CalcResult, Profession, RouteDetail, RouteListItem } from "@/types";
+import type { CalcResult, CalcStep, Profession, RouteDetail, RouteListItem } from "@/types";
 
 const session = useSessionStore();
 const router = useRouter();
@@ -131,23 +135,18 @@ async function loadRoutes() {
   });
 }
 
-function fmt(copper: number | null | undefined) {
-  if (copper === null || copper === undefined) return "—";
-  const neg = copper < 0;
-  const c = Math.abs(Math.round(copper));
-  const g = Math.floor(c / 10000);
-  const s = Math.floor((c % 10000) / 100);
-  const k = c % 100;
-  const parts: string[] = [];
-  if (g) parts.push(`${g}金`);
-  if (s) parts.push(`${s}银`);
-  if (k || !parts.length) parts.push(`${k}铜`);
-  return (neg ? "-" : "") + parts.join("");
-}
-
 async function openDetail(r: RouteListItem) {
   detail.value = await api.routeDetail(r.share_code);
   recalc.value = null;
+}
+
+/** 档位几率：公式模式下段内衰减显示区间，fixed 模式显示单一值。 */
+function probLabel(s: CalcStep) {
+  const a = Math.round(s.prob * 100);
+  if (s.prob_end != null && Math.abs(s.prob_end - s.prob) > 0.005) {
+    return `${a}% → ${Math.round(s.prob_end * 100)}%`;
+  }
+  return `${a}%`;
 }
 
 async function onAdopt() {

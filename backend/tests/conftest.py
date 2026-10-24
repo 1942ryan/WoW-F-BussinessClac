@@ -43,7 +43,7 @@ def client():
 # ---------- 测试数据工厂 ----------
 
 
-def make_item(db, item_id: int, name: str, vendor_price: int = 0, quality: int = 1, item_level: int | None = None, icon: str | None = None) -> Item:
+def make_item(db, item_id: int, name: str, vendor_price: int = 0, quality: int = 1, item_level: int | None = None, icon: str | None = None, type: str | None = None) -> Item:
     item = Item(
         id=item_id,
         name=name,
@@ -51,10 +51,16 @@ def make_item(db, item_id: int, name: str, vendor_price: int = 0, quality: int =
         vendor_price=vendor_price,
         item_level=item_level,
         icon=icon,
+        type=type,
     )
     db.add(item)
     db.flush()
     return item
+
+
+def make_material_source(db, prof: Profession, item: Item, kind: str = "vendor") -> None:
+    db.add(MaterialSource(profession_id=prof.id, item_id=item.id, kind=kind))
+    db.flush()
 
 
 def make_profession(db, key: str = "test", name: str = "测试专业") -> Profession:

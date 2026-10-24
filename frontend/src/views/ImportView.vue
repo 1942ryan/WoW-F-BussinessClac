@@ -76,7 +76,7 @@
                 <span>{{ p.name }}</span>
               </span>
             </td>
-            <td class="num money">{{ fmt(p.price) }}</td>
+            <td class="num money"><Money :value="p.price" /></td>
             <td class="num">{{ p.record_count }}</td>
             <td class="muted">{{ p.last_at ? new Date(p.last_at).toLocaleString("zh-CN") : "—" }}</td>
           </tr>
@@ -95,9 +95,9 @@
       <div v-if="searched" style="margin-top: 10px">
         <div class="flex flex-wrap">
           <span><b>{{ searched.name }}</b>（ID {{ searched.item_id }}）</span>
-          <span class="muted">NPC 卖店价 {{ fmt(searched.vendor_price) }}</span>
+          <span class="muted">NPC 卖店价 <Money :value="searched.vendor_price" /></span>
           <span v-if="searched.effective_ah !== null" class="money">
-            当前拍卖有效价 {{ fmt(searched.effective_ah) }}
+            当前拍卖有效价 <Money :value="searched.effective_ah" />
           </span>
           <span v-else class="muted">暂无拍卖价格记录</span>
           <div class="flex">
@@ -110,7 +110,7 @@
           <tbody>
             <tr v-for="(h, i) in searched.history" :key="i">
               <td>#{{ h.batch_id }}</td>
-              <td class="num money">{{ fmt(h.unit_price) }}</td>
+              <td class="num money"><Money :value="h.unit_price" /></td>
               <td>{{ h.imported_by ?? "—" }}</td>
               <td class="muted">{{ h.created_at ? new Date(h.created_at).toLocaleString("zh-CN") : "—" }}</td>
             </tr>
@@ -149,6 +149,7 @@ import { onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { api } from "@/api/client";
 import ItemIcon from "@/components/ItemIcon.vue";
+import Money from "@/components/Money.vue";
 import TemplateExportDialog from "@/components/TemplateExportDialog.vue";
 import { useSessionStore } from "@/stores/session";
 import type { BatchInfo, EffectivePrice, ImportSummary, ItemPrice } from "@/types";
@@ -174,20 +175,6 @@ onMounted(() => {
     loadBatches();
   }
 });
-
-function fmt(copper: number | null | undefined) {
-  if (copper === null || copper === undefined) return "—";
-  const neg = copper < 0;
-  const c = Math.abs(Math.round(copper));
-  const g = Math.floor(c / 10000);
-  const s = Math.floor((c % 10000) / 100);
-  const k = c % 100;
-  const parts: string[] = [];
-  if (g) parts.push(`${g}金`);
-  if (s) parts.push(`${s}银`);
-  if (k || !parts.length) parts.push(`${k}铜`);
-  return (neg ? "-" : "") + parts.join("");
-}
 
 function onFile(e: Event) {
   const input = e.target as HTMLInputElement;

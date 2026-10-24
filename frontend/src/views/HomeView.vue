@@ -23,11 +23,13 @@
     <section class="panel">
       <h2>2 · 选择专业</h2>
       <div v-if="professions.length" class="prof-grid">
-        <div v-for="p in professions" :key="p.key" class="prof-card" @click="onPickProf(p)">
-          <div class="icon">{{ iconOf(p.key) }}</div>
-          <div class="name">{{ p.name }}</div>
-          <div class="count">{{ p.recipe_count }} 个配方</div>
+      <div v-for="p in professions" :key="p.key" class="prof-card" @click="onPickProf(p)">
+        <div class="icon">
+          <ItemIcon :icon="p.icon" :name="p.name" :size="36" />
         </div>
+        <div class="name">{{ p.name }}</div>
+        <div class="count">{{ p.recipe_count }} 个配方</div>
+      </div>
       </div>
       <div v-else class="empty">专业数据加载中…</div>
     </section>
@@ -47,6 +49,7 @@
 import { onMounted, ref } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 import { api } from "@/api/client";
+import ItemIcon from "@/components/ItemIcon.vue";
 import { useSessionStore } from "@/stores/session";
 import type { Profession, Server } from "@/types";
 
@@ -56,22 +59,6 @@ const servers = ref<Server[]>([]);
 const professions = ref<Profession[]>([]);
 const selectedId = ref(0);
 const newName = ref("");
-
-const ICONS: Record<string, string> = {
-  blacksmithing: "⚒",
-  leatherworking: "🦺",
-  tailoring: "🧵",
-  alchemy: "⚗",
-  enchanting: "✨",
-  engineering: "🔧",
-  cooking: "🍳",
-  "first-aid": "🩹",
-  mining: "⛏",
-};
-
-function iconOf(key: string) {
-  return ICONS[key] ?? "📦";
-}
 
 onMounted(async () => {
   servers.value = await api.listServers();
