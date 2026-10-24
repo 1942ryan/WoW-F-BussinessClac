@@ -456,8 +456,8 @@ class TestCalcRoute:
         assert result["totals"]["mat_cost"] == pytest.approx(10 * 20.4166666, abs=1e-3)
         assert not any("设计图" in w for w in result["warnings"])
 
-    def test_design_missing_price_warns(self, db_session):
-        """AH 计价但图纸无价格：按 0 计并警告。"""
+    def test_design_missing_price_silent(self, db_session):
+        """AH 计价但图纸无价格：按 0 静默计入，不再输出警告文案。"""
         prof = make_profession(db_session, "test5", "缺价图纸专业")
         mat = make_item(db_session, 9501, "缺价材料")
         design = make_item(db_session, 9502, "设计图：缺价")
@@ -474,7 +474,8 @@ class TestCalcRoute:
             CalcIn(server_id=server.id, profession_key="test5", from_skill=1, to_skill=15),
             _settings(),
         )
-        assert any("暂无价格" in w for w in result["warnings"])
+        assert all(s["design_cost"] == 0 for s in result["steps"])
+        assert not any("暂无价格" in w for w in result["warnings"])
 
     def test_block_design_item(self, db_session):
         """屏蔽设计图物品 → 该设计图配方不参与计算。"""

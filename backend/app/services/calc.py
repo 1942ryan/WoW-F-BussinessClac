@@ -179,7 +179,6 @@ class RecipeView:
     design_cost: int = 0
     design_name: str | None = None
     design_icon: str | None = None
-    design_missing: bool = False  # AH 计价但图纸暂无价格
 
 
 def _band(recipe: RecipeView, skill: int) -> str:
@@ -417,8 +416,6 @@ def _load_recipes(
                 dp = prices.get(r.source_item_id)
                 if dp is not None:
                     view.design_cost = dp
-                else:
-                    view.design_missing = True
         views.append(view)
 
     return views, excluded
@@ -542,12 +539,7 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
             design_paid.add(best.id)
             step_design_cost = best.design_cost
             step_design_name = best.design_name
-            if best.design_missing:
-                warnings.append(
-                    f"「{best.product_name}」需要设计图「{best.design_name}」，暂无价格（按 0 计；"
-                    "如为掉落获得，请把图纸获取方式改为「掉落」）"
-                )
-            elif step_design_cost > 0 and best.source_item_id:
+            if step_design_cost > 0 and best.source_item_id:
                 agg = mat_totals.setdefault(
                     best.source_item_id,
                     {
@@ -696,6 +688,7 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
             "net_display": fmt_copper(net_total),
         },
         "materials": materials,
-        "warnings": warnings,
+        # 同一配方可能在多个步骤出现，警告去重（保序），避免同一条文案刷屏
+        "warnings": list(dict.fromkeys(warnings)),
         "excluded": excluded,
     }

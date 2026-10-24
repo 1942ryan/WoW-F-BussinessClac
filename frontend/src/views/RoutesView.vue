@@ -76,7 +76,7 @@
       <div style="overflow-x: auto">
         <table class="grid nowrap" v-if="detail.steps.length">
           <thead>
-            <tr><th>技能区间</th><th>制作</th><th class="num">次数</th><th>档位</th><th class="num">花费</th></tr>
+            <tr><th>技能区间</th><th>制作</th><th class="num">次数</th><th class="num">花费</th></tr>
           </thead>
           <tbody>
             <tr v-for="(s, i) in detail.steps" :key="i">
@@ -89,7 +89,6 @@
                 </span>
               </td>
               <td class="num">{{ Math.round(s.crafts) }}</td>
-              <td>{{ s.band === "orange" ? "橙" : s.band === "yellow" ? "黄" : "绿" }} {{ probLabel(s) }}</td>
               <td class="num money"><Money :value="s.net" neg-as-earn /></td>
             </tr>
           </tbody>
@@ -126,7 +125,7 @@ import FactionIcon from "@/components/FactionIcon.vue";
 import ItemIcon from "@/components/ItemIcon.vue";
 import Money from "@/components/Money.vue";
 import { useSessionStore } from "@/stores/session";
-import type { CalcResult, CalcStep, Faction, Profession, RouteDetail, RouteListItem } from "@/types";
+import type { CalcResult, Faction, Profession, RouteDetail, RouteListItem } from "@/types";
 
 const session = useSessionStore();
 const router = useRouter();
@@ -155,15 +154,7 @@ async function openDetail(r: RouteListItem) {
   recalc.value = null;
 }
 
-/** 档位几率：公式模式下段内衰减显示区间，fixed 模式显示单一值。 */
-function probLabel(s: CalcStep) {
-  const a = Math.round(s.prob * 100);
-  if (s.prob_end != null && Math.abs(s.prob_end - s.prob) > 0.005) {
-    return `${a}% → ${Math.round(s.prob_end * 100)}%`;
-  }
-  return `${a}%`;
-}
-
+/** 采用路线：载入参数与屏蔽/确认设置，跳到冲级计划页按当前价格重算。 */
 async function onAdopt() {
   if (!detail.value) return;
   if (!session.state.serverId) {

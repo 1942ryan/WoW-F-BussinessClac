@@ -78,7 +78,7 @@
                        @change="onCountChange(r.id, $event)" />
               </td>
               <td>
-                <button class="btn small danger" @click="session.toggleConfirmRecipe(r.id)">移除</button>
+                <button class="btn small danger" @click="onConfirmRecipe(r.id)">移除</button>
               </td>
             </tr>
           </tbody>
@@ -89,7 +89,7 @@
     <!-- ============ 主体：左 3/4 配方列表，右 1/4 计算结果 ============ -->
     <div class="plan-body">
       <!-- 左栏：配方列表 -->
-      <section class="panel">
+      <section class="panel plan-recipes">
         <h2>配方列表 · 点击操作</h2>
         <div class="flex flex-wrap" style="margin-bottom: 10px">
           <input v-model="recipeQuery" type="text" placeholder="搜索成品或材料名称…" style="width: 260px" />
@@ -103,7 +103,7 @@
             <thead>
               <tr>
                 <th>成品</th>
-                <th class="wrap">材料（单价/来源）</th>
+                <th class="wrap">材料（单价）</th>
                 <th class="num">生产成本</th>
                 <th>产物处置（点价格即选中）</th>
                 <th>技能档</th>
@@ -131,13 +131,12 @@
                     <span>{{ m.name }} ×{{ m.qty }}</span>
                     <span v-if="m.unit_price !== null" class="money muted">
                       <Money :value="m.unit_price" :size="11" />
-                      <span class="tag" :class="m.price_source === 'npc' ? 'npc' : 'ah'">
-                        {{ m.price_source === "npc" ? "NPC" : "拍卖" }}
-                      </span>
                     </span>
                     <span v-else class="neg">无价格</span>
-                    <button class="btn small danger" @click="onBlockItem(m.item_id)"
-                            :title="'屏蔽后，所有需要「' + m.name + '」的配方都不参与计算'">屏蔽</button>
+                    <button class="btn small icon-btn" @click="onBlockItem(m.item_id)"
+                            :title="'屏蔽后，所有需要「' + m.name + '」的配方都不参与计算'">
+                      <span class="ico ban">⊘</span>
+                    </button>
                   </div>
                 </td>
                 <td class="num"><Money v-if="r.mat_cost !== null" :value="r.mat_cost" /><span v-else>—</span></td>
@@ -161,8 +160,11 @@
                             @click="onDispChange(r.id, '')" title="清除本配方覆盖，回到跟随全局（卖拍卖行）">↺</button>
                   </div>
                 </td>
-                <td class="money">
-                  {{ r.skill_orange }} / {{ r.skill_yellow }} / {{ r.skill_green }} / {{ r.skill_gray }}
+                <td class="skill-bands" title="技能档（橙/黄/绿/灰，变灰后不再涨点）">
+                  <span class="sb sb-o">{{ r.skill_orange }}</span>
+                  <span class="sb sb-y">{{ r.skill_yellow }}</span>
+                  <span class="sb sb-g">{{ r.skill_green }}</span>
+                  <span class="sb sb-r">{{ r.skill_gray }}</span>
                 </td>
                 <td>
                   <span v-if="r.source_type === 'trainer'" class="tag trainer">训练师</span>
@@ -174,16 +176,25 @@
                   <span v-else>—</span>
                 </td>
                 <td style="white-space: nowrap">
-                  <button class="btn small" :class="{ active: session.state.blockedRecipeIds.includes(r.id) }"
-                          @click="session.toggleBlockRecipe(r.id)">
-                    {{ session.state.blockedRecipeIds.includes(r.id) ? "已屏蔽" : "屏蔽" }}
+                  <button class="btn small icon-btn"
+                          :class="{ active: session.state.blockedRecipeIds.includes(r.id) }"
+                          @click="onBlockRecipe(r.id)"
+                          :title="session.state.blockedRecipeIds.includes(r.id)
+                            ? '已屏蔽，点击恢复参与计算'
+                            : '屏蔽此配方，不参与计算'">
+                    <span class="ico ban">⊘</span>
                   </button>
-                  <button class="btn small" :class="{ active: session.state.confirmedRecipeIds.includes(r.id) }"
-                          @click="session.toggleConfirmRecipe(r.id)"
-                          title="确认采用：当前技能下优先做这个，次数是上限（默认 1 次）">
-                    {{ session.state.confirmedRecipeIds.includes(r.id) ? "已确认" : "确认采用" }}
+                  <button class="btn small icon-btn"
+                          :class="{ active: session.state.confirmedRecipeIds.includes(r.id) }"
+                          @click="onConfirmRecipe(r.id)"
+                          :title="session.state.confirmedRecipeIds.includes(r.id)
+                            ? '已确认：后面的数字是制作次数上限（不是目标），点击取消'
+                            : '确认采用：当前技能下优先做这个配方，次数是上限（默认 1 次）'">
+                    <span class="ico star">{{ session.state.confirmedRecipeIds.includes(r.id) ? "★" : "☆" }}</span>
+                    <span v-if="session.state.confirmedRecipeIds.includes(r.id)" class="max-tag">最大</span>
                   </button>
-                  <span v-if="session.state.confirmedRecipeIds.includes(r.id)" class="flex" style="gap: 2px; display: inline-flex">
+                  <span v-if="session.state.confirmedRecipeIds.includes(r.id)"
+                        class="flex" style="gap: 2px; display: inline-flex">
                     ×<input type="number" min="1" max="999" style="width: 52px"
                             :value="session.confirmedCountOf(r.id)"
                             @change="onCountChange(r.id, $event)"
@@ -223,7 +234,7 @@
             <thead>
               <tr>
                 <th>技能区间</th><th>制作</th><th class="num">次数</th>
-                <th>档位</th><th class="num">花费</th>
+                <th class="num">花费</th>
               </tr>
             </thead>
             <tbody>
@@ -242,11 +253,6 @@
                   </span>
                 </td>
                 <td class="num">{{ Math.round(s.crafts) }}</td>
-                <td>
-                  <span class="tag" :class="bandClass(s.band)">
-                    {{ bandLabel(s.band) }} {{ probLabel(s) }}
-                  </span>
-                </td>
                 <td class="num"><Money :value="s.net" neg-as-earn /></td>
               </tr>
             </tbody>
@@ -430,22 +436,6 @@ function isUsed(id: number) {
   return result.value?.steps.some((s) => s.recipe_id === id) ?? false;
 }
 
-function bandLabel(b: string) {
-  return b === "orange" ? "橙" : b === "yellow" ? "黄" : "绿";
-}
-function bandClass(b: string) {
-  return b === "orange" ? "band-o" : b === "yellow" ? "band-y" : "band-g";
-}
-
-/** 档位几率展示：合并段内几率衰减，显示 100%→20%。 */
-function probLabel(s: CalcResult["steps"][number]) {
-  const a = Math.round(s.prob * 100);
-  if (s.prob_end != null && Math.abs(s.prob_end - s.prob) > 0.005) {
-    return `${a}% → ${Math.round(s.prob_end * 100)}%`;
-  }
-  return `${a}%`;
-}
-
 function dispLabel(d: string) {
   return d === "sell_ah" ? "→拍卖" : d === "sell_npc" ? "→卖店" : "→自用";
 }
@@ -455,22 +445,58 @@ function curDisp(r: Recipe): Disposition {
   return (session.recipeDispositionOf(r.id) as Disposition) || "sell_ah";
 }
 
-function onDispChange(id: number, d: Disposition | "") {
+/** 计算序号：连续改动会并发多次重算，只接受最后一次请求的结果，避免旧响应覆盖新响应。 */
+let calcSeq = 0;
+
+async function doCalc() {
+  if (!validRange.value) return;
+  const seq = ++calcSeq;
+  loading.value = true;
+  try {
+    const r = await api.calc(session.toCalcParams());
+    if (seq === calcSeq) result.value = r;
+  } finally {
+    if (seq === calcSeq) loading.value = false;
+  }
+}
+
+/** 已有计算结果时立即按最新参数重算（任何屏蔽/确认/处置/次数改动后调用）。 */
+async function recalcNow() {
+  if (!result.value) return;
+  await doCalc();
+}
+
+async function onDispChange(id: number, d: Disposition | "") {
   session.setRecipeDisposition(id, d);
-  loadRecipes();
+  await loadRecipes();
+  await recalcNow();
+}
+
+function onBlockRecipe(id: number) {
+  session.toggleBlockRecipe(id);
+  recalcNow();
+}
+
+function onConfirmRecipe(id: number) {
+  session.toggleConfirmRecipe(id);
+  recalcNow();
 }
 
 function onCountChange(id: number, e: Event) {
   const v = Number((e.target as HTMLInputElement).value);
   session.setConfirmedCount(id, Number.isFinite(v) ? v : 1);
+  recalcNow();
 }
 
 function onBlockItem(itemId: number) {
   session.toggleBlockItem(itemId);
+  recalcNow();
 }
 
 function onClearOverrides() {
   session.clearOverrides();
+  loadRecipes();
+  recalcNow();
 }
 
 async function runCalc() {
@@ -478,26 +504,14 @@ async function runCalc() {
   session.setRange(fromSkill.value, toSkill.value);
   session.setPriceMode(priceMode.value);
   await loadRecipes();
-  loading.value = true;
-  try {
-    result.value = await api.calc(session.toCalcParams());
-  } finally {
-    loading.value = false;
-  }
+  await doCalc();
 }
 
 /** 价格导入完成后：刷新配方价格，已有计算结果时自动重算。 */
 async function onImported() {
   showImport.value = false;
   await loadRecipes();
-  if (result.value && validRange.value) {
-    loading.value = true;
-    try {
-      result.value = await api.calc(session.toCalcParams());
-    } finally {
-      loading.value = false;
-    }
-  }
+  await recalcNow();
 }
 
 function onSave() {
@@ -564,6 +578,34 @@ async function onConfirmSave() {
   flex-wrap: wrap;
   gap: 4px;
 }
+/* ---- 技能档：竖排 + 橙黄绿灰上色 ---- */
+.skill-bands {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.sb { font-weight: 600; }
+.sb-o { color: #c2610f; }
+.sb-y { color: #a8831b; }
+.sb-g { color: #4d7d36; }
+.sb-r { color: #8a8a8a; }
+/* ---- 图标操作按钮（星标=确认采用/最大，禁令=屏蔽） ---- */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 7px;
+}
+.icon-btn .ico { font-size: 13px; line-height: 1; }
+.icon-btn .ban { color: #a03030; }
+.icon-btn.active .ban { color: #c0392b; }
+.icon-btn .star { color: #b08630; }
+.icon-btn.active .star { color: #d8a53a; }
+.max-tag { font-size: 11px; font-weight: 700; color: #8a6100; }
 .price-btn {
   display: inline-flex;
   align-items: center;
