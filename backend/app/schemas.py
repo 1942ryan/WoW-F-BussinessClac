@@ -59,6 +59,7 @@ class ProfessionOut(BaseModel):
 class MaterialOut(BaseModel):
     item_id: int
     name: str
+    icon: str | None = None  # 图标 URL
     qty: int
     unit_price: int | None = None  # 铜；None=无价格
     price_source: str | None = None  # ah | npc | None
@@ -69,6 +70,7 @@ class RecipeOut(BaseModel):
     id: int
     product_item_id: int | None
     product_name: str
+    product_icon: str | None = None  # 成品图标 URL
     product_kind: str
     product_qty: int
     is_new: bool
@@ -103,6 +105,7 @@ class ImportSummaryOut(BaseModel):
 class EffectivePriceOut(BaseModel):
     item_id: int
     name: str
+    icon: str | None = None  # 图标 URL
     price: int
     mode: str
     record_count: int
@@ -119,6 +122,7 @@ class PriceHistoryPointOut(BaseModel):
 class ItemPriceOut(BaseModel):
     item_id: int
     name: str
+    icon: str | None = None  # 图标 URL
     name_en: str | None = None
     quality: int = 0
     vendor_price: int = 0
@@ -159,6 +163,7 @@ class CalcStepOut(BaseModel):
     recipe_id: int
     recipe_name: str
     product_item_id: int | None
+    product_icon: str | None = None  # 成品图标 URL
     crafts: int
     prob: float
     band: str  # orange | yellow | green
@@ -174,6 +179,7 @@ class CalcStepOut(BaseModel):
 class MaterialTotalOut(BaseModel):
     item_id: int
     name: str
+    icon: str | None = None  # 图标 URL
     qty: int
     unit_price: int | None
     price_source: str | None
@@ -227,6 +233,7 @@ class RouteSaveIn(BaseModel):
 class WatchlistItemOut(BaseModel):
     item_id: int
     name: str
+    icon: str | None = None  # 图标 URL
     kind: str  # material | product | design
 
 

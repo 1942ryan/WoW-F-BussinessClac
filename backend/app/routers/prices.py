@@ -214,6 +214,7 @@ def effective_prices_list(
         EffectivePriceOut(
             item_id=i,
             name=items[i].name if i in items else f"物品{i}",
+            icon=items[i].icon if i in items else None,
             price=prices[i],
             mode=mode,
             record_count=counts.get(i, 0),
@@ -244,6 +245,7 @@ def item_price_detail(
     return ItemPriceOut(
         item_id=item.id,
         name=item.name,
+        icon=item.icon,
         name_en=item.name_en,
         quality=item.quality,
         vendor_price=item.vendor_price,

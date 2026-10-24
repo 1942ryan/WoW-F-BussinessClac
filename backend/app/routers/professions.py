@@ -64,7 +64,11 @@ def profession_watchlist(
 
     items = {i.id: i for i in db.execute(select(Item).where(Item.id.in_(kinds))).scalars().all()}
     entries = sorted(
-        ({"item_id": i, "name": items[i].name, "kind": k} for i, k in kinds.items() if i in items),
+        (
+            {"item_id": i, "name": items[i].name, "icon": items[i].icon, "kind": k}
+            for i, k in kinds.items()
+            if i in items
+        ),
         key=lambda e: e["name"],
     )
     text = "^".join([prof.name, *(e["name"] for e in entries)])
@@ -183,6 +187,7 @@ def list_recipes(
                 MaterialOut(
                     item_id=m.item_id,
                     name=item.name if item else f"物品{m.item_id}",
+                    icon=item.icon if item else None,
                     qty=m.qty,
                     unit_price=unit,
                     price_source=source,
@@ -202,6 +207,7 @@ def list_recipes(
                 id=r.id,
                 product_item_id=r.product_item_id,
                 product_name=r.product_name,
+                product_icon=items[r.product_item_id].icon if r.product_item_id and r.product_item_id in items else None,
                 product_kind=r.product_kind,
                 product_qty=r.product_qty,
                 is_new=r.is_new,

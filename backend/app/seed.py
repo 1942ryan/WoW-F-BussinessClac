@@ -64,6 +64,7 @@ def seed(force: bool = False) -> None:
                 type=it.get("type"),
                 class_id=it.get("class_id"),
                 status=it.get("status"),
+                icon=it.get("icon"),
                 vendor_price=it.get("vendor_price", 0),
             )
             item_objs[it["id"]] = obj

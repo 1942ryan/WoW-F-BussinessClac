@@ -30,6 +30,17 @@
         <div class="flex" style="margin-top: 10px">
           <button class="btn primary" @click="copyText">{{ copied ? "已复制 ✓" : "复制文本" }}</button>
           <button class="btn" @click="download">下载 .txt</button>
+          <button class="btn" @click="showAll = !showAll">
+            {{ showAll ? "收起图标预览" : `展开图标预览（前 ${previewLimit} 个）` }}
+          </button>
+        </div>
+        <div v-if="showAll" class="icon-preview">
+          <span v-for="it in watch.items.slice(0, previewLimit)" :key="it.item_id" class="icon-cell" :title="it.name">
+            <ItemIcon :icon="it.icon" :name="it.name" :size="28" />
+          </span>
+          <span v-if="watch.items.length > previewLimit" class="muted" style="align-self: center">
+            ……等共 {{ watch.items.length }} 个
+          </span>
         </div>
       </div>
       <div v-else-if="error" class="alert warn" style="margin-top: 12px">{{ error }}</div>
@@ -44,6 +55,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { api } from "@/api/client";
+import ItemIcon from "@/components/ItemIcon.vue";
 import type { Profession, Watchlist } from "@/types";
 
 const props = defineProps<{ professionKey?: string }>();
@@ -57,6 +69,8 @@ const watch = ref<Watchlist | null>(null);
 const loading = ref(false);
 const error = ref("");
 const copied = ref(false);
+const showAll = ref(false);
+const previewLimit = 120;
 
 function countOf(kind: string) {
   return watch.value?.items.filter((i) => i.kind === kind).length ?? 0;
@@ -114,4 +128,10 @@ onMounted(async () => {
   display: flex; align-items: center; justify-content: center; z-index: 50;
 }
 .dialog { width: 640px; max-width: 94vw; max-height: 92vh; overflow-y: auto; }
+.icon-preview {
+  display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px;
+  max-height: 180px; overflow-y: auto; padding: 6px;
+  background: rgba(128, 128, 128, 0.08); border-radius: 6px;
+}
+.icon-cell { line-height: 0; }
 </style>

@@ -184,3 +184,45 @@ def test_watchlist_export(client, db_session):
     assert data["text"].startswith("锻造^")
     for n in names:
         assert n in data["text"]
+
+
+def test_icons_in_recipes_and_calc(client, db_session):
+    """物品图标应随配方列表与计算结果输出。"""
+    from tests.conftest import add_price, make_item, make_profession, make_recipe, make_server
+
+    server = make_server(db_session, "图标服")
+    prof = make_profession(db_session, "bs", "锻造")
+    m1 = make_item(
+        db_session, 2840, "铜锭",
+        icon="https://wowforever.wclbox.com/tubiao/inv_ingot_02.jpg",
+    )
+    p1 = make_item(
+        db_session, 2851, "铜棒",
+        icon="https://wowforever.wclbox.com/tubiao/inv_misc_flute_01.jpg",
+    )
+    make_recipe(db_session, prof, p1, "铜棒", [(m1, 1)], 1, 10, 12, 15)
+    db_session.commit()
+
+    # 配方列表带成品与材料图标
+    recipes = client.get("/api/v1/professions/bs/recipes").json()
+    r0 = recipes[0]
+    assert r0["product_icon"].endswith("inv_misc_flute_01.jpg")
+    assert r0["materials"][0]["icon"].endswith("inv_ingot_02.jpg")
+
+    # 计算结果带图标（材料清单 + 步骤）
+    add_price(db_session, server, m1, 25)
+    db_session.commit()
+    calc = client.post(
+        "/api/v1/routes/calc",
+        json={
+            "server_id": server.id,
+            "profession_key": "bs",
+            "from_skill": 1,
+            "to_skill": 10,
+            "price_mode": "latest",
+            "product_disposition": "sell_npc",
+        },
+    ).json()
+    assert calc["steps"][0]["product_icon"].endswith("inv_misc_flute_01.jpg")
+    mat = next(m for m in calc["materials"] if m["item_id"] == 2840)
+    assert mat["icon"].endswith("inv_ingot_02.jpg")

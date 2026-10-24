@@ -22,7 +22,8 @@
 | 配方屏蔽 | 原材料无法获取或成品无法出售时，屏蔽该配方或屏蔽该物品（全链路生效） |
 | 确认采用 | 指定必须制作的配方（如想做了卖钱），路线优先排产 |
 | 路线分享 | 保存路线生成分享码；他人「采用」后按其服务器当前价格一键重算 |
-| 数据规模 | 9 个制造专业 · 2150 个配方 · 3979 个物品（2039 个含卖店价） |
+| 物品图标 | 配方 / 路线 / 材料清单均显示无限版物品图标（官方库 CDN，失败回退原版 wowhead） |
+| 数据规模 | 9 个制造专业 · 2150 个配方 · 3979 个物品（2039 个含卖店价、全部带图标） |
 
 ## 技术栈
 
@@ -175,9 +176,9 @@ WoW-F-BussinessClac/
 │   │       └── importer.py    # AUC CSV 解析（编码/链接/价格格式）
 │   ├── scraper/               # 官方 API 抓取脚本（可重跑更新种子）
 │   ├── data/                  # professions.json / items.json / sample_auc_import.csv
-│   └── tests/                 # pytest：43 个用例（解析/引擎/API 端到端）
+│   └── tests/                 # pytest：44 个用例（解析/引擎/API 端到端）
 ├── frontend/                  # Vue3 + TS 单页应用
-│   └── src/components/        # 价格导入 / 模板导出弹窗
+│   └── src/components/        # 价格导入 / 模板导出弹窗 / 物品图标
 ├── Dockerfile                 # 两阶段：构建前端 + Python 后端，单端口
 ├── docker-compose.yml         # PostgreSQL + app
 └── _research/                 # 抓取时的原始页面存档（不随 git 提交）
@@ -190,6 +191,7 @@ WoW-F-BussinessClac/
 # 2. 重新抓取（走官方开放 API，限流 5 次/秒，约 10 分钟）
 cd backend && python scraper/scrape_professions.py
 python scraper/scrape_items.py
+python scraper/scrape_icons.py    # 物品图标（详情接口才有，约 13 分钟）
 # 3. 重建配方数据（保留服务器/价格/路线）
 python -m app.seed --force
 ```
@@ -197,8 +199,15 @@ python -m app.seed --force
 ## 测试
 
 ```bash
-cd backend && pytest tests/ -q     # 43 passed
+cd backend && pytest tests/ -q     # 44 passed
 ```
+
+## 物品图标
+
+物品图标来自无限官方数据库（`/tubiao/<图标名>.jpg`，`inv_ingot_02` / `spell_xxx`
+命名与原版同一套体系，无限新增物品原版 wowhead 反而没有），由 `scrape_icons.py`
+从官方开放 API 详情接口抓取并随种子入库。前端引用官方 CDN，加载失败自动回退
+原版 wowhead 图标 CDN（`wow.zamimg.com`，同一命名）。
 
 ## 已知边界 / 后续路线
 

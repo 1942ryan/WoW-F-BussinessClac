@@ -29,6 +29,7 @@ def search_items(
             "name": i.name,
             "name_en": i.name_en,
             "quality": i.quality,
+            "icon": i.icon,
             "vendor_price": i.vendor_price,
         }
         for i in matched[:limit]
@@ -48,5 +49,6 @@ def item_detail(item_id: int, db: Session = Depends(get_db)) -> dict:
         "item_level": item.item_level,
         "type": item.type,
         "status": item.status,
+        "icon": item.icon,
         "vendor_price": item.vendor_price,
     }

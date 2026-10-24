@@ -70,7 +70,12 @@
         </thead>
         <tbody>
           <tr v-for="p in prices" :key="p.item_id">
-            <td>{{ p.name }}</td>
+            <td>
+              <span class="flex" style="gap: 6px">
+                <ItemIcon :icon="p.icon" :name="p.name" :size="22" />
+                <span>{{ p.name }}</span>
+              </span>
+            </td>
             <td class="num money">{{ fmt(p.price) }}</td>
             <td class="num">{{ p.record_count }}</td>
             <td class="muted">{{ p.last_at ? new Date(p.last_at).toLocaleString("zh-CN") : "—" }}</td>
@@ -143,6 +148,7 @@
 import { onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { api } from "@/api/client";
+import ItemIcon from "@/components/ItemIcon.vue";
 import TemplateExportDialog from "@/components/TemplateExportDialog.vue";
 import { useSessionStore } from "@/stores/session";
 import type { BatchInfo, EffectivePrice, ImportSummary, ItemPrice } from "@/types";

@@ -19,6 +19,7 @@ export interface Profession {
 export interface MaterialLine {
   item_id: number;
   name: string;
+  icon?: string | null;
   qty: number;
   unit_price: number | null;
   price_source: "ah" | "npc" | null;
@@ -29,6 +30,7 @@ export interface Recipe {
   id: number;
   product_item_id: number | null;
   product_name: string;
+  product_icon?: string | null;
   product_kind: "item" | "enchant";
   product_qty: number;
   is_new: boolean;
@@ -70,6 +72,7 @@ export interface BatchInfo {
 export interface EffectivePrice {
   item_id: number;
   name: string;
+  icon?: string | null;
   price: number;
   mode: string;
   record_count: number;
@@ -79,6 +82,7 @@ export interface EffectivePrice {
 export interface ItemPrice {
   item_id: number;
   name: string;
+  icon?: string | null;
   name_en: string | null;
   quality: number;
   vendor_price: number;
@@ -94,6 +98,7 @@ export interface CalcStep {
   recipe_id: number;
   recipe_name: string;
   product_item_id: number | null;
+  product_icon?: string | null;
   crafts: number;
   prob: number;
   band: string;
@@ -109,6 +114,7 @@ export interface CalcStep {
 export interface MaterialTotal {
   item_id: number;
   name: string;
+  icon?: string | null;
   qty: number;
   unit_price: number | null;
   price_source: string | null;
@@ -152,6 +158,7 @@ export interface CalcResult {
 export interface WatchlistItem {
   item_id: number;
   name: string;
+  icon?: string | null;
   kind: "material" | "product" | "design";
 }
 

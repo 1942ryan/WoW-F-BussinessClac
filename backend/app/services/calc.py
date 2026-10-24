@@ -94,6 +94,7 @@ def effective_prices(
 class MatLine:
     item_id: int
     name: str
+    icon: str | None
     qty: int
     ah_price: int | None
     npc_price: int | None
@@ -112,6 +113,7 @@ class RecipeView:
     gray: int
     source_type: str
     source_item_id: int | None
+    product_icon: str | None = None  # 成品图标 URL
     mats: list[MatLine] = field(default_factory=list)
     mat_cost: int | None = None  # 每次材料成本（铜）
     revenue: int | None = None  # 每次成品收入（铜）
@@ -122,6 +124,7 @@ class RecipeView:
     # 设计图配方：图纸一次性成本（学会即消耗，不随制作次数增加）
     design_cost: int = 0
     design_name: str | None = None
+    design_icon: str | None = None
     design_missing: bool = False  # AH 计价但图纸暂无价格
 
 
@@ -198,6 +201,7 @@ def _load_recipes(
             id=r.id,
             product_item_id=r.product_item_id,
             product_name=r.product_name,
+            product_icon=(items[r.product_item_id].icon if r.product_item_id in items else None),
             product_qty=r.product_qty,
             is_new=r.is_new,
             orange=orange,
@@ -251,6 +255,7 @@ def _load_recipes(
                 MatLine(
                     item_id=m.item_id,
                     name=name,
+                    icon=item.icon if item else None,
                     qty=m.qty,
                     ah_price=ah,
                     npc_price=npc,
@@ -292,6 +297,7 @@ def _load_recipes(
         if r.source_type == "design" and r.source_item_id:
             design_item = items.get(r.source_item_id)
             view.design_name = design_item.name if design_item else f"物品{r.source_item_id}"
+            view.design_icon = design_item.icon if design_item else None
             if params.design_cost == "ah":
                 dp = prices.get(r.source_item_id)
                 if dp is not None:
@@ -388,6 +394,7 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
                     {
                         "item_id": best.source_item_id,
                         "name": best.design_name,
+                        "icon": best.design_icon,
                         "qty": 0,
                         "kind": "design",
                     },
@@ -402,6 +409,7 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
                 "recipe_id": best.id,
                 "recipe_name": best.product_name,
                 "product_item_id": best.product_item_id,
+                "product_icon": best.product_icon,
                 "crafts": crafts,
                 "prob": prob,
                 "band": band,
@@ -421,7 +429,7 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
         for m in best.mats:
             agg = mat_totals.setdefault(
                 m.item_id,
-                {"item_id": m.item_id, "name": m.name, "qty": 0},
+                {"item_id": m.item_id, "name": m.name, "icon": m.icon, "qty": 0},
             )
             agg["qty"] += m.qty * crafts
 
@@ -480,6 +488,7 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
             {
                 "item_id": item_id,
                 "name": agg["name"],
+                "icon": agg.get("icon"),
                 "qty": agg["qty"],
                 "unit_price": unit,
                 "price_source": source,

@@ -75,13 +75,17 @@
             <tr v-for="r in filteredRecipes" :key="r.id"
                 :class="{ used: isUsed(r.id) }">
               <td>
-                <span :class="'q' + (r.product_item_id ? qualityOf(r) : 1)">{{ r.product_name }}</span>
+                <span class="flex" style="gap: 6px">
+                  <ItemIcon :icon="r.product_icon" :name="r.product_name" :size="24" />
+                  <span :class="'q' + (r.product_item_id ? qualityOf(r) : 1)">{{ r.product_name }}</span>
+                </span>
                 <span v-if="r.product_qty > 1" class="muted"> ×{{ r.product_qty }}</span>
                 <span v-if="r.is_new" class="tag new">新</span>
                 <span v-if="r.product_kind === 'enchant'" class="tag trainer">附魔</span>
               </td>
               <td>
                 <div v-for="m in r.materials" :key="m.item_id" class="flex" style="gap: 4px">
+                  <ItemIcon :icon="m.icon" :name="m.name" :size="20" />
                   <span>{{ m.name }} ×{{ m.qty }}</span>
                   <span v-if="m.unit_price !== null" class="money muted">
                     {{ fmt(m.unit_price) }}
@@ -153,7 +157,10 @@
           <tr v-for="(s, i) in result.steps" :key="i">
             <td class="money">{{ s.skill_from }} → {{ s.skill_to }}</td>
             <td>
-              {{ s.recipe_name }}
+              <span class="flex" style="gap: 6px">
+                <ItemIcon :icon="s.product_icon" :name="s.recipe_name" :size="24" />
+                <span>{{ s.recipe_name }}</span>
+              </span>
               <span v-if="s.confirmed" class="tag confirmed">确认采用</span>
             </td>
             <td class="num">{{ s.crafts }}</td>
@@ -182,7 +189,10 @@
         <tbody>
           <tr v-for="m in result.materials" :key="m.item_id">
             <td>
-              {{ m.name }}
+              <span class="flex" style="gap: 6px">
+                <ItemIcon :icon="m.icon" :name="m.name" :size="22" />
+                <span>{{ m.name }}</span>
+              </span>
               <span v-if="m.kind === 'design'" class="tag design">设计图</span>
             </td>
             <td class="num">{{ m.qty }}</td>
@@ -253,6 +263,7 @@
 import { computed, onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { api } from "@/api/client";
+import ItemIcon from "@/components/ItemIcon.vue";
 import PriceImportDialog from "@/components/PriceImportDialog.vue";
 import TemplateExportDialog from "@/components/TemplateExportDialog.vue";
 import { useSessionStore } from "@/stores/session";

@@ -43,6 +43,7 @@ class Item(Base):
     type: Mapped[str | None] = mapped_column(String(64))  # 英文子类型，如 Metal & Stone
     class_id: Mapped[int | None] = mapped_column(Integer)
     status: Mapped[str | None] = mapped_column(String(16))  # new/rebuilt/changed/same/missing
+    icon: Mapped[str | None] = mapped_column(String(256))  # 图标 URL（无限官方库）
     vendor_price: Mapped[int] = mapped_column(Integer, default=0)  # 卖店价（铜）
 
 

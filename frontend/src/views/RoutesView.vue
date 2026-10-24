@@ -60,7 +60,12 @@
         <tbody>
           <tr v-for="(s, i) in detail.steps" :key="i">
             <td class="money">{{ s.skill_from }} → {{ s.skill_to }}</td>
-            <td>{{ s.recipe_name }}</td>
+            <td>
+              <span class="flex" style="gap: 6px">
+                <ItemIcon :icon="s.product_icon" :name="s.recipe_name" :size="22" />
+                <span>{{ s.recipe_name }}</span>
+              </span>
+            </td>
             <td class="num">{{ s.crafts }}</td>
             <td>{{ s.band === "orange" ? "橙" : s.band === "yellow" ? "黄" : "绿" }} {{ Math.round(s.prob * 100) }}%</td>
             <td class="num money" :class="s.net < 0 ? 'pos' : ''">{{ fmt(s.net) }}</td>
@@ -73,7 +78,12 @@
         <thead><tr><th>材料</th><th class="num">数量</th><th class="num">小计</th></tr></thead>
         <tbody>
           <tr v-for="m in detail.materials" :key="m.item_id">
-            <td>{{ m.name }}</td><td class="num">{{ m.qty }}</td>
+            <td>
+              <span class="flex" style="gap: 6px">
+                <ItemIcon :icon="m.icon" :name="m.name" :size="22" />
+                <span>{{ m.name }}</span>
+              </span>
+            </td><td class="num">{{ m.qty }}</td>
             <td class="num money">{{ m.cost !== null ? fmt(m.cost) : "—" }}</td>
           </tr>
         </tbody>
@@ -95,6 +105,7 @@
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { api } from "@/api/client";
+import ItemIcon from "@/components/ItemIcon.vue";
 import { useSessionStore } from "@/stores/session";
 import type { CalcResult, Profession, RouteDetail, RouteListItem } from "@/types";
 
