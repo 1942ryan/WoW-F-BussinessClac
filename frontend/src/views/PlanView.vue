@@ -6,10 +6,17 @@
 
   <template v-else>
     <div class="plan-layout">
-      <!-- ============ 左栏：计算参数 ============ -->
+      <!-- ============ 左栏：计算参数（吸顶，操作按钮始终可见） ============ -->
       <div class="plan-side">
         <section class="panel">
-          <h2>计算参数 · {{ profName }}</h2>
+          <h2>
+            <span class="flex" style="gap: 8px; align-items: center">
+              <ItemIcon :icon="profIcon" :name="profName" :size="24" :item-id="null" />
+              计算参数 · {{ profName }}
+            </span>
+            <FactionIcon v-if="session.state.serverFaction !== 'both'"
+                         :faction="session.state.serverFaction" :size="18" style="margin-left: 6px" />
+          </h2>
           <div class="flex flex-wrap" style="gap: 12px">
             <label class="field">当前技能
               <input type="number" min="0" max="375" v-model.number="fromSkill" style="width: 70px" />
@@ -62,7 +69,7 @@
             </label>
             <label v-if="includeDesigns" class="field">图纸成本
               <select v-model="designCost">
-                <option value="ah">AH 购买计入</option>
+                <option value="ah">拍卖行购买计入</option>
                 <option value="drop">掉落不计</option>
               </select>
             </label>
@@ -91,13 +98,14 @@
             确认采用的配方会优先制作。长 CD 配方（如每日 1 次的转化）请在右侧填次数，
             用完后自动退出路线；缺省按 1 次计。
           </p>
-          <table class="grid">
+          <table class="grid nowrap">
             <thead><tr><th>配方</th><th class="num" style="width: 76px">次数</th><th></th></tr></thead>
             <tbody>
               <tr v-for="r in confirmedList" :key="r.id">
                 <td>
                   <span class="flex" style="gap: 6px">
-                    <ItemIcon :icon="r.product_icon" :name="r.product_name" :size="22" />
+                    <ItemIcon :icon="r.product_icon" :name="r.product_name" :size="22"
+                              :item-id="r.product_item_id" />
                     <span>{{ r.product_name }}</span>
                   </span>
                 </td>
@@ -119,8 +127,8 @@
       <div class="plan-main">
         <section class="panel" v-if="result">
           <h2>
-            <span class="flex" style="gap: 8px">
-              <ItemIcon :icon="profIcon" :name="result.profession.name" :size="26" />
+            <span class="flex" style="gap: 8px; align-items: center">
+              <ItemIcon :icon="profIcon" :name="result.profession.name" :size="26" :item-id="null" />
               计算结果 · {{ result.profession.name }} {{ result.params.from_skill }} → {{ result.params.to_skill }}
             </span>
           </h2>
@@ -138,72 +146,82 @@
             <div v-for="w in result.warnings.slice(0, 8)" :key="w">⚠ {{ w }}</div>
           </div>
 
-          <h3>路线步骤</h3>
-          <table class="grid" v-if="result.steps.length">
-            <thead>
-              <tr>
-                <th>技能区间</th><th>制作</th><th class="num">次数</th>
-                <th>档位</th><th class="num">材料费</th><th class="num">收入</th><th class="num">净成本</th>
-                <th class="num">图纸成本</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(s, i) in result.steps" :key="i">
-                <td class="money">{{ Math.round(s.skill_from) }} → {{ Math.round(s.skill_to) }}</td>
-                <td>
-                  <span class="flex" style="gap: 6px">
-                    <ItemIcon :icon="s.product_icon" :name="s.recipe_name" :size="24" />
-                    <span>{{ s.recipe_name }}</span>
-                  </span>
-                  <span v-if="s.confirmed" class="tag confirmed">确认采用</span>
-                  <span v-if="s.disposition" class="tag disp">{{ dispLabel(s.disposition) }}</span>
-                </td>
-                <td class="num">{{ Math.round(s.crafts) }}</td>
-                <td>
-                  <span class="tag" :class="bandClass(s.band)">
-                    {{ bandLabel(s.band) }} {{ probLabel(s) }}
-                  </span>
-                </td>
-                <td class="num"><Money :value="s.mat_cost" /></td>
-                <td class="num"><Money :value="s.revenue" /></td>
-                <td class="num" :class="s.net < 0 ? 'pos' : ''"><Money :value="s.net" /></td>
-                <td class="num">
-                  <span v-if="s.design_cost" :title="s.design_name ?? ''"><Money :value="s.design_cost" /></span>
-                  <span v-else class="muted">—</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <div v-else class="empty">当前价格与筛选条件下没有可用的路线，请检查价格导入或放宽屏蔽。</div>
+          <div class="flex flex-wrap" style="margin: 12px 0 6px; gap: 8px; align-items: center">
+            <h3 style="margin: 0">路线步骤</h3>
+            <span class="muted" style="font-size: 12px">同一产品连续制作已合并；档位显示几率区间（100% → 20%）</span>
+          </div>
+          <div style="overflow-x: auto">
+            <table class="grid nowrap" v-if="result.steps.length">
+              <thead>
+                <tr>
+                  <th>技能区间</th><th>制作</th><th class="num">次数</th>
+                  <th>档位</th><th class="num">材料费</th><th class="num">收入</th><th class="num">净成本</th>
+                  <th class="num">图纸成本</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(s, i) in result.steps" :key="i">
+                  <td class="money">{{ Math.round(s.skill_from) }} → {{ Math.round(s.skill_to) }}</td>
+                  <td>
+                    <span class="flex" style="gap: 6px">
+                      <ItemIcon :icon="s.product_icon" :name="s.recipe_name" :size="24"
+                                :item-id="s.product_item_id" />
+                      <span>{{ s.recipe_name }}</span>
+                    </span>
+                    <span v-if="s.confirmed" class="tag confirmed">确认采用</span>
+                    <span v-if="s.disposition" class="tag disp">{{ dispLabel(s.disposition) }}</span>
+                  </td>
+                  <td class="num">{{ Math.round(s.crafts) }}</td>
+                  <td>
+                    <span class="tag" :class="bandClass(s.band)">
+                      {{ bandLabel(s.band) }} {{ probLabel(s) }}
+                    </span>
+                  </td>
+                  <td class="num"><Money :value="s.mat_cost" /></td>
+                  <td class="num"><Money :value="s.revenue" /></td>
+                  <td class="num" :class="s.net < 0 ? 'pos' : ''"><Money :value="s.net" /></td>
+                  <td class="num">
+                    <span v-if="s.design_cost" :title="s.design_name ?? ''"><Money :value="s.design_cost" /></span>
+                    <span v-else class="muted">—</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-else class="empty">当前价格与筛选条件下没有可用的路线，请检查价格导入或放宽屏蔽。</div>
+          </div>
 
-          <h3>材料采购清单</h3>
-          <table class="grid" v-if="result.materials.length">
-            <thead>
-              <tr><th>材料</th><th class="num">数量</th><th class="num">单价</th><th>来源</th><th class="num">小计</th></tr>
-            </thead>
-            <tbody>
-              <tr v-for="m in result.materials" :key="m.item_id">
-                <td>
-                  <span class="flex" style="gap: 6px">
-                    <ItemIcon :icon="m.icon" :name="m.name" :size="22" />
-                    <span>{{ m.name }}</span>
-                  </span>
-                  <span v-if="m.kind === 'design'" class="tag design">设计图</span>
-                  <span v-else-if="m.npc_limited" class="tag limited"
-                        title="NPC 限量供应（如草药），冲级不能依靠，已按拍卖行计价">NPC限量</span>
-                </td>
-                <td class="num">{{ Math.round(m.qty) }}</td>
-                <td class="num"><Money v-if="m.unit_price !== null" :value="m.unit_price" /><span v-else>—</span></td>
-                <td>
-                  <span v-if="m.kind === 'design'" class="tag design">AH 购买</span>
-                  <span v-else-if="m.price_source === 'npc'" class="tag npc">NPC 购买</span>
-                  <span v-else-if="m.price_source === 'ah'" class="tag ah">拍卖行</span>
-                  <span v-else class="muted">—</span>
-                </td>
-                <td class="num"><Money v-if="m.cost !== null" :value="m.cost" /><span v-else>—</span></td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="flex flex-wrap" style="margin: 14px 0 6px; gap: 8px; align-items: center">
+            <h3 style="margin: 0">材料采购清单</h3>
+            <button class="btn small" @click="showShopping = true" v-if="result.materials.length"
+                    title="把采购清单导出为 AUC 关注清单，去游戏内按清单导价">导出 AUC 清单</button>
+          </div>
+          <div style="overflow-x: auto">
+            <table class="grid nowrap" v-if="result.materials.length">
+              <thead>
+                <tr><th>材料</th><th class="num">数量</th><th class="num">单价</th><th>来源</th><th class="num">小计</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="m in result.materials" :key="m.item_id">
+                  <td>
+                    <span class="flex" style="gap: 6px">
+                      <ItemIcon :icon="m.icon" :name="m.name" :size="22" :item-id="m.item_id" />
+                      <span>{{ m.name }}</span>
+                    </span>
+                    <span v-if="m.kind === 'design'" class="tag design">设计图</span>
+                  </td>
+                  <td class="num">{{ Math.round(m.qty) }}</td>
+                  <td class="num"><Money v-if="m.unit_price !== null" :value="m.unit_price" /><span v-else>—</span></td>
+                  <td>
+                    <span v-if="m.kind === 'design'" class="tag ah">拍卖行</span>
+                    <span v-else-if="m.price_source === 'npc'" class="tag npc">NPC 购买</span>
+                    <span v-else-if="m.price_source === 'ah'" class="tag ah">拍卖行</span>
+                    <span v-else class="muted">—</span>
+                  </td>
+                  <td class="num"><Money v-if="m.cost !== null" :value="m.cost" /><span v-else>—</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
 
           <details style="margin-top: 10px">
             <summary class="muted">未参与计算的配方（{{ result.excluded.length }}）</summary>
@@ -226,38 +244,42 @@
           <h2>配方列表 · 点击操作</h2>
           <div class="flex flex-wrap" style="margin-bottom: 10px">
             <input v-model="recipeQuery" type="text" placeholder="搜索成品或材料名称…" style="width: 260px" />
+            <label class="field">
+              <input type="checkbox" v-model="onlyUsed" /> 只看路线用到的
+            </label>
             <span class="muted">共 {{ filteredRecipes.length }} 个配方参与计算</span>
           </div>
-          <div style="overflow-x: auto">
-            <table class="grid">
+          <div class="table-scroll">
+            <table class="grid nowrap">
               <thead>
                 <tr>
                   <th>成品</th>
-                  <th>材料（单价/来源）</th>
+                  <th class="wrap">材料（单价/来源）</th>
                   <th class="num">材料费</th>
                   <th class="num">收入</th>
                   <th class="num">净成本</th>
-                  <th>产物处置</th>
+                  <th>产物处置（点价格即选中）</th>
                   <th>技能档</th>
                   <th>来源</th>
                   <th>操作</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="r in filteredRecipes" :key="r.id"
+                <tr v-for="r in visibleRecipes" :key="r.id"
                     :class="{ used: isUsed(r.id) }">
                   <td>
                     <span class="flex" style="gap: 6px">
-                      <ItemIcon :icon="r.product_icon" :name="r.product_name" :size="24" />
+                      <ItemIcon :icon="r.product_icon" :name="r.product_name" :size="24"
+                                :item-id="r.product_item_id" />
                       <span>{{ r.product_name }}</span>
                     </span>
                     <span v-if="r.product_qty > 1" class="muted"> ×{{ r.product_qty }}</span>
                     <span v-if="r.is_new" class="tag new">新</span>
                     <span v-if="r.product_kind === 'enchant'" class="tag trainer">附魔</span>
                   </td>
-                  <td>
+                  <td class="wrap">
                     <div v-for="m in r.materials" :key="m.item_id" class="flex" style="gap: 4px">
-                      <ItemIcon :icon="m.icon" :name="m.name" :size="20" />
+                      <ItemIcon :icon="m.icon" :name="m.name" :size="20" :item-id="m.item_id" />
                       <span>{{ m.name }} ×{{ m.qty }}</span>
                       <span v-if="m.unit_price !== null" class="money muted">
                         <Money :value="m.unit_price" :size="11" />
@@ -266,8 +288,6 @@
                         </span>
                       </span>
                       <span v-else class="neg">无价格</span>
-                      <span v-if="m.npc_limited" class="tag limited"
-                            title="NPC 限量供应（如草药），已按拍卖行计价">限量</span>
                       <button class="btn small danger" @click="onBlockItem(m.item_id)"
                               :title="'屏蔽后，所有需要「' + m.name + '」的配方都不参与计算'">屏蔽</button>
                     </div>
@@ -278,14 +298,26 @@
                     <Money v-if="r.net_cost !== null" :value="r.net_cost" /><span v-else>—</span>
                   </td>
                   <td>
-                    <select style="width: 92px" :value="session.recipeDispositionOf(r.id)"
-                            @change="onDispChange(r.id, $event)"
-                            title="该配方产物的去向；「跟随全局」用左侧默认处置">
-                      <option value="">跟随全局</option>
-                      <option value="sell_ah">拍卖行</option>
-                      <option value="sell_npc">卖店</option>
-                      <option value="self_use">自用</option>
-                    </select>
+                    <div class="disp-btns">
+                      <button class="price-btn" :class="{ active: curDisp(r) === 'sell_npc' }"
+                              @click="onDispChange(r.id, 'sell_npc')"
+                              title="卖给 NPC（价 = 卖店价）">
+                        <span class="pb-k">卖店</span>
+                        <Money v-if="r.product_npc_price !== null" :value="r.product_npc_price" :size="12" />
+                        <span v-else class="muted">—</span>
+                      </button>
+                      <button class="price-btn" :class="{ active: curDisp(r) === 'sell_ah' }"
+                              @click="onDispChange(r.id, 'sell_ah')"
+                              title="卖给拍卖行（价 = 当前有效拍卖价）">
+                        <span class="pb-k">拍卖行</span>
+                        <Money v-if="r.product_ah_price !== null" :value="r.product_ah_price" :size="12" />
+                        <span v-else class="muted">无价</span>
+                      </button>
+                      <button class="price-btn self" :class="{ active: curDisp(r) === 'self_use' }"
+                              @click="onDispChange(r.id, 'self_use')" title="自用，不计收入">自用</button>
+                      <button v-if="session.recipeDispositionOf(r.id)" class="price-btn ghost"
+                              @click="onDispChange(r.id, '')" title="清除本配方覆盖，回到跟随全局">↺</button>
+                    </div>
                   </td>
                   <td class="money">
                     {{ r.skill_orange }} / {{ r.skill_yellow }} / {{ r.skill_green }} / {{ r.skill_gray }}
@@ -351,6 +383,10 @@
                        @close="showImport = false" @imported="onImported" />
     <TemplateExportDialog v-if="showTemplate" :profession-key="session.state.professionKey"
                           @close="showTemplate = false" />
+    <ShoppingExportDialog v-if="showShopping && result"
+                          :profession-name="result.profession.name"
+                          :materials="result.materials"
+                          @close="showShopping = false" />
   </template>
 </template>
 
@@ -358,9 +394,11 @@
 import { computed, onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { api } from "@/api/client";
+import FactionIcon from "@/components/FactionIcon.vue";
 import ItemIcon from "@/components/ItemIcon.vue";
 import Money from "@/components/Money.vue";
 import PriceImportDialog from "@/components/PriceImportDialog.vue";
+import ShoppingExportDialog from "@/components/ShoppingExportDialog.vue";
 import TemplateExportDialog from "@/components/TemplateExportDialog.vue";
 import { useSessionStore } from "@/stores/session";
 import type { CalcResult, Disposition, Profession, Recipe } from "@/types";
@@ -371,6 +409,7 @@ const recipes = ref<Recipe[]>([]);
 const result = ref<CalcResult | null>(null);
 const loading = ref(false);
 const recipeQuery = ref("");
+const onlyUsed = ref(false);
 
 const fromSkill = ref(session.state.fromSkill);
 const toSkill = ref(session.state.toSkill);
@@ -386,6 +425,7 @@ const probGreen = ref(session.state.probGreen);
 const showSave = ref(false);
 const showImport = ref(false);
 const showTemplate = ref(false);
+const showShopping = ref(false);
 const saveTitle = ref("");
 const saveAuthor = ref("");
 const saveNotes = ref("");
@@ -396,11 +436,17 @@ const profIcon = computed(() => professions.value.find((p) => p.key === session.
 const validRange = computed(() => toSkill.value > fromSkill.value);
 const filteredRecipes = computed(() => {
   const q = recipeQuery.value.trim();
-  if (!q) return recipes.value;
-  return recipes.value.filter(
+  let list = recipes.value;
+  if (onlyUsed.value && result.value) {
+    const usedIds = new Set(result.value.steps.map((s) => s.recipe_id));
+    list = list.filter((r) => usedIds.has(r.id));
+  }
+  if (!q) return list;
+  return list.filter(
     (r) => r.product_name.includes(q) || r.materials.some((m) => m.name.includes(q))
   );
 });
+const visibleRecipes = computed(() => filteredRecipes.value.slice(0, 400));
 const confirmedList = computed(() =>
   recipes.value.filter((r) => session.state.confirmedRecipeIds.includes(r.id))
 );
@@ -434,7 +480,7 @@ function bandClass(b: string) {
   return b === "orange" ? "band-o" : b === "yellow" ? "band-y" : "band-g";
 }
 
-/** 档位几率展示：公式模式下段内衰减，显示 100%→80%；fixed 模式显示单一值。 */
+/** 档位几率展示：合并段内几率衰减，显示 100%→20%；fixed 模式显示单一值。 */
 function probLabel(s: CalcResult["steps"][number]) {
   const a = Math.round(s.prob * 100);
   if (s.prob_end != null && Math.abs(s.prob_end - s.prob) > 0.005) {
@@ -447,9 +493,13 @@ function dispLabel(d: string) {
   return d === "sell_ah" ? "→拍卖" : d === "sell_npc" ? "→卖店" : "→自用";
 }
 
-function onDispChange(id: number, e: Event) {
-  const v = (e.target as HTMLSelectElement).value as Disposition | "";
-  session.setRecipeDisposition(id, v);
+/** 当前生效处置：单配方覆盖优先，否则跟随全局。 */
+function curDisp(r: Recipe): Disposition {
+  return (session.recipeDispositionOf(r.id) as Disposition) || disposition.value;
+}
+
+function onDispChange(id: number, d: Disposition | "") {
+  session.setRecipeDisposition(id, d);
   loadRecipes();
 }
 
@@ -525,4 +575,54 @@ async function onConfirmSave() {
   display: flex; align-items: center; justify-content: center; z-index: 50;
 }
 .save-dialog { width: 480px; max-width: 92vw; }
+.table-scroll {
+  max-height: 560px;
+  overflow: auto;
+  border-radius: 6px;
+}
+.table-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--panel-bg, #f7f4ec);
+}
+.disp-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.price-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--border, #d8d3c4);
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.price-btn:hover {
+  border-color: #b08b3e;
+}
+.price-btn.active {
+  border-color: #b08b3e;
+  background: rgba(176, 139, 62, 0.16);
+  font-weight: 600;
+}
+.price-btn.self {
+  color: var(--muted);
+}
+.price-btn.ghost {
+  padding: 3px 6px;
+  color: var(--muted);
+}
+.pb-k {
+  color: var(--muted);
+  font-size: 11px;
+}
+.price-btn.active .pb-k {
+  color: inherit;
+}
 </style>

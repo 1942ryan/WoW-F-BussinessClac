@@ -6,9 +6,17 @@
 
   <template v-else>
     <section class="panel">
-      <h2>导入拍卖行价格 · {{ session.state.serverName }}</h2>
+      <h2>
+        <span class="flex" style="gap: 6px; align-items: center">
+          导入拍卖行价格 · {{ session.state.serverName }}
+          <FactionIcon v-if="session.state.serverFaction !== 'both'"
+                       :faction="session.state.serverFaction" :size="18" />
+        </span>
+      </h2>
       <p class="muted" style="margin-top: 0">
-        从游戏内 AUC 插件导出 CSV 后上传；每次导入都会留存记录，同服务器玩家之后计算时自动使用这些价格。
+        从游戏内 AUC 插件导出 CSV 后上传；每次导入都会留存记录，同服务器
+        <b v-if="session.state.serverFaction !== 'both'">同阵营</b>玩家之后计算时自动使用这些价格
+        （联盟与部落价格互相隔离）。
       </p>
       <div class="flex flex-wrap" style="align-items: flex-start; gap: 14px">
         <div class="grow">
@@ -72,7 +80,7 @@
           <tr v-for="p in prices" :key="p.item_id">
             <td>
               <span class="flex" style="gap: 6px">
-                <ItemIcon :icon="p.icon" :name="p.name" :size="22" />
+                <ItemIcon :icon="p.icon" :name="p.name" :size="22" :item-id="p.item_id" />
                 <span>{{ p.name }}</span>
               </span>
             </td>
@@ -148,6 +156,7 @@
 import { onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { api } from "@/api/client";
+import FactionIcon from "@/components/FactionIcon.vue";
 import ItemIcon from "@/components/ItemIcon.vue";
 import Money from "@/components/Money.vue";
 import TemplateExportDialog from "@/components/TemplateExportDialog.vue";

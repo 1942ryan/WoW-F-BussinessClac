@@ -1,11 +1,28 @@
 /** API 类型定义（与后端 Pydantic Schema 对应）。 */
 
+export type Faction = "alliance" | "horde" | "both";
+
 export interface Server {
   id: number;
   name: string;
+  faction?: Faction;
   batch_count: number;
   route_count: number;
   created_at?: string;
+}
+
+export interface ItemDetail {
+  item_id: number;
+  name: string;
+  name_en?: string | null;
+  quality: number;
+  item_level: number | null;
+  type: string | null;
+  status?: string | null;
+  icon?: string | null;
+  vendor_price: number;
+  effective_ah: number | null;
+  record_count: number;
 }
 
 export interface Profession {
@@ -49,6 +66,9 @@ export interface Recipe {
   net_cost: number | null;
   blocked: boolean;
   confirmed: boolean;
+  /** 产物双价格（单次产出，铜）：卖店价 / 拍卖行有效价（无流水为 null） */
+  product_npc_price: number | null;
+  product_ah_price: number | null;
 }
 
 export interface ImportSummary {
@@ -190,6 +210,7 @@ export interface RouteListItem {
   title: string;
   author: string | null;
   server_name: string;
+  server_faction?: Faction;
   profession_name: string;
   profession_key: string;
   from_skill: number;
@@ -207,7 +228,7 @@ export interface RouteDetail {
   title: string;
   author: string | null;
   notes: string | null;
-  server: { id: number; name: string };
+  server: { id: number; name: string; faction?: Faction };
   profession: { key: string; name: string };
   params: CalcParams;
   steps: CalcStep[];

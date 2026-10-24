@@ -4,7 +4,9 @@ import type {
   CalcParams,
   CalcResult,
   EffectivePrice,
+  Faction,
   ImportSummary,
+  ItemDetail,
   ItemPrice,
   Profession,
   Recipe,
@@ -23,8 +25,13 @@ const http = axios.create({
 export const api = {
   // 服务器
   listServers: () => http.get<Server[]>("/servers").then((r) => r.data),
-  createServer: (name: string) =>
-    http.post<{ id: number; name: string; existed: boolean }>("/servers", { name }).then((r) => r.data),
+  createServer: (name: string, faction: Faction = "both") =>
+    http
+      .post<{ id: number; name: string; faction: string; existed: boolean }>("/servers", {
+        name,
+        faction,
+      })
+      .then((r) => r.data),
 
   // 专业与配方
   listProfessions: () => http.get<Profession[]>("/professions").then((r) => r.data),
@@ -85,6 +92,10 @@ export const api = {
         "/items/search",
         { params: { q } }
       )
+      .then((r) => r.data),
+  itemDetail: (itemId: number, serverId?: number | null) =>
+    http
+      .get<ItemDetail>(`/items/${itemId}`, { params: { server_id: serverId ?? undefined } })
       .then((r) => r.data),
 
   // 路线

@@ -209,16 +209,21 @@ def list_recipes(
                     unit_price=unit,
                     price_source=source,
                     line_cost=unit * m.qty if unit is not None else None,
-                    npc_limited=limited,
                 )
             )
         revenue = None
         disp = disp_overrides.get(r.id) or disposition
+        product_npc_price: int | None = None
+        product_ah_price: int | None = None
         if price_ok and r.product_item_id:
+            prod_item = items[r.product_item_id]
+            product_npc_price = (prod_item.vendor_price or 0) * r.product_qty
+            ah_price = prices.get(r.product_item_id)
+            product_ah_price = ah_price * r.product_qty if ah_price is not None else None
             if disp == "sell_ah":
-                revenue = (prices.get(r.product_item_id) or items[r.product_item_id].vendor_price) * r.product_qty
+                revenue = product_ah_price if product_ah_price is not None else product_npc_price
             elif disp == "sell_npc":
-                revenue = items[r.product_item_id].vendor_price * r.product_qty
+                revenue = product_npc_price
             else:
                 revenue = 0
         out.append(
@@ -241,6 +246,8 @@ def list_recipes(
                 mat_cost=mat_cost if price_ok else None,
                 revenue=revenue,
                 net_cost=(mat_cost - revenue) if (price_ok and revenue is not None) else None,
+                product_npc_price=product_npc_price,
+                product_ah_price=product_ah_price,
             )
         )
     return out

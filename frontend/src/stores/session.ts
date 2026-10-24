@@ -1,12 +1,14 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
-import type { CalcParams, Disposition, ProbMode } from "@/types";
+import type { CalcParams, Disposition, Faction, ProbMode } from "@/types";
 
 const LS_KEY = "wowfc-session-v1";
 
 interface SessionState {
   serverId: number | null;
   serverName: string;
+  /** 当前服务器阵营：alliance/horde/both（价格按阵营隔离） */
+  serverFaction: Faction;
   professionKey: string;
   fromSkill: number;
   toSkill: number;
@@ -42,6 +44,7 @@ function defaults(): SessionState {
   return {
     serverId: null,
     serverName: "",
+    serverFaction: "both",
     professionKey: "",
     fromSkill: 1,
     toSkill: 75,
@@ -68,9 +71,10 @@ export const useSessionStore = defineStore("session", () => {
     localStorage.setItem(LS_KEY, JSON.stringify(state.value));
   }
 
-  function setServer(id: number, name: string) {
+  function setServer(id: number, name: string, faction: Faction = "both") {
     state.value.serverId = id;
     state.value.serverName = name;
+    state.value.serverFaction = faction;
     persist();
   }
 

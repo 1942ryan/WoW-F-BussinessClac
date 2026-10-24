@@ -112,21 +112,26 @@ class TestChanceModel:
 
 class TestCalcRoute:
     def test_single_recipe_bands_formula(self, db_session):
-        """1→15 只有 A 可用；公式模式：橙 9 + 黄 2.25 + 绿 9.17 ≈ 20.42 次。"""
+        """1→15 只有 A 可用；公式模式：橙 9 + 黄 2.25 + 绿 9.17 ≈ 20.42 次。
+
+        同一配方跨档位连续制作合并为一段，档位几率以区间展示（100% → 20%）。
+        """
         _prof, server, _ = _build_scenario(db_session)
         result = calc_route(
             db_session,
             CalcIn(server_id=server.id, profession_key="test", from_skill=1, to_skill=15),
             _settings(),
         )
-        assert [s["recipe_name"] for s in result["steps"]] == ["货品A"] * 3
-        assert [s["band"] for s in result["steps"]] == ["orange", "yellow", "green"]
-        assert [s["crafts"] for s in result["steps"]] == pytest.approx([9, 2.25, 1 / 0.6 + 1 / 0.4 + 1 / 0.2])
+        assert [s["recipe_name"] for s in result["steps"]] == ["货品A"]
+        assert result["steps"][0]["band"] == "orange"
+        assert result["steps"][0]["prob"] == 1.0
+        assert result["steps"][0]["prob_end"] == pytest.approx(0.2)
+        assert result["steps"][0]["crafts"] == pytest.approx(20.4166666, abs=1e-3)
         assert result["totals"]["crafts"] == pytest.approx(20.4166666, abs=1e-3)
         assert result["totals"]["net"] == 0  # 收入正好抵材料
 
     def test_single_recipe_bands_fixed(self, db_session):
-        """fixed 模式（旧口径）：橙 9 + 黄 4 + 绿 12 = 25 次。"""
+        """fixed 模式（旧口径）：橙 9 + 黄 4 + 绿 12 = 25 次，合并为一段。"""
         _prof, server, _ = _build_scenario(db_session)
         result = calc_route(
             db_session,
@@ -142,7 +147,8 @@ class TestCalcRoute:
             ),
             _settings(),
         )
-        assert [s["crafts"] for s in result["steps"]] == [9, 4, 12]
+        assert len(result["steps"]) == 1
+        assert result["steps"][0]["crafts"] == 25
         assert result["totals"]["crafts"] == 25
 
     def test_switch_by_cost(self, db_session):
@@ -154,7 +160,7 @@ class TestCalcRoute:
             _settings(),
         )
         names = [s["recipe_name"] for s in result["steps"]]
-        assert names[:3] == ["货品A"] * 3
+        assert names[0] == "货品A"
         assert "货品B" in names and "货品C" not in names  # 公式模式下全程 B 更优
         assert names[-1] == "货品B"
         assert result["totals"]["net"] > 0
@@ -248,8 +254,8 @@ class TestCalcRoute:
         assert len(b_steps) == 1
         assert b_steps[0]["crafts"] == 1
         assert any(e["reason"] == "确认次数已用完" for e in result["excluded"])
-        # 1 次 B 涨 1 点（10→11），其余交给 A
-        assert [s["recipe_name"] for s in result["steps"]] == ["货品B", "货品A", "货品A"]
+        # 1 次 B 涨 1 点（10→11），其余交给 A（A 的 11→15 合并为一段）
+        assert [s["recipe_name"] for s in result["steps"]] == ["货品B", "货品A"]
 
     def test_confirmed_count_multi(self, db_session):
         """确认 5 次：B 连续 5 次（10→15 橙档各 1 点）。"""
@@ -495,7 +501,8 @@ class TestLimitedVendor:
         assert result["steps"] == []
         assert any("NPC限量" in e["reason"] for e in result["excluded"])
 
-    def test_materials_list_marks_limited(self, db_session):
+    def test_materials_list_uses_ah_for_limited(self, db_session):
+        """限量材料（草药）只按拍卖行计价：即使 NPC 有售也不取 25 铜的卖店价。"""
         prof = make_profession(db_session, "herbprof3", "草药专业3")
         herb = make_item(db_session, 9901, "跌打草", vendor_price=25, type="Herb")
         prod = make_item(db_session, 9902, "跌打药剂")
@@ -510,8 +517,8 @@ class TestLimitedVendor:
             _settings(),
         )
         line = next(m for m in result["materials"] if m["item_id"] == 9901)
-        assert line["npc_limited"] is True
         assert line["price_source"] == "ah"  # 只走拍卖行
+        assert line["unit_price"] == 80  # 不取 NPC 卖店价 25
 
 
 class TestFmtCopper:

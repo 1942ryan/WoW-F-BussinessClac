@@ -24,7 +24,12 @@
         <tr v-for="r in routes" :key="r.id">
           <td><b>{{ r.title }}</b></td>
           <td>{{ r.profession_name }}</td>
-          <td>{{ r.server_name }}</td>
+          <td>
+            <span class="flex" style="gap: 4px">
+              <FactionIcon :faction="r.server_faction" :size="16" />
+              {{ r.server_name }}
+            </span>
+          </td>
           <td>{{ r.author ?? "匿名" }}</td>
           <td class="money">{{ r.from_skill }} → {{ r.to_skill }}</td>
           <td>{{ r.price_mode === "latest" ? "最新" : "中位数" }}</td>
@@ -41,8 +46,12 @@
     <div class="save-dialog panel">
       <h2>{{ detail.title }}</h2>
       <div class="muted">
-        {{ detail.profession.name }} · {{ detail.server.name }} · {{ detail.params.from_skill }} → {{ detail.params.to_skill }}
-        · 作者 {{ detail.author ?? "匿名" }}
+        <span class="flex" style="gap: 6px">
+          <FactionIcon v-if="detail.server.faction && detail.server.faction !== 'both'"
+                       :faction="detail.server.faction as Faction" :size="16" />
+          {{ detail.profession.name }} · {{ detail.server.name }} · {{ detail.params.from_skill }} → {{ detail.params.to_skill }}
+          · 作者 {{ detail.author ?? "匿名" }}
+        </span>
       </div>
       <div v-if="detail.notes" style="margin-top: 6px">备注：{{ detail.notes }}</div>
 
@@ -52,53 +61,58 @@
         <div class="card"><div class="k">分享码</div><div class="v" style="font-size: 14px">{{ detail.share_code }}</div></div>
       </div>
 
-      <h3>路线步骤</h3>
-      <table class="grid" v-if="detail.steps.length">
-        <thead>
-          <tr><th>技能区间</th><th>制作</th><th class="num">次数</th><th>档位</th><th class="num">净成本</th></tr>
-        </thead>
-        <tbody>
-          <tr v-for="(s, i) in detail.steps" :key="i">
-            <td class="money">{{ Math.round(s.skill_from) }} → {{ Math.round(s.skill_to) }}</td>
-            <td>
-              <span class="flex" style="gap: 6px">
-                <ItemIcon :icon="s.product_icon" :name="s.recipe_name" :size="22" />
-                <span>{{ s.recipe_name }}</span>
-              </span>
-            </td>
-            <td class="num">{{ Math.round(s.crafts) }}</td>
-            <td>{{ s.band === "orange" ? "橙" : s.band === "yellow" ? "黄" : "绿" }} {{ probLabel(s) }}</td>
-            <td class="num money" :class="s.net < 0 ? 'pos' : ''"><Money :value="s.net" /></td>
-          </tr>
-        </tbody>
-      </table>
-
-      <h3>材料清单</h3>
-      <table class="grid" v-if="detail.materials.length">
-        <thead><tr><th>材料</th><th class="num">数量</th><th class="num">小计</th></tr></thead>
-        <tbody>
-          <tr v-for="m in detail.materials" :key="m.item_id">
-            <td>
-              <span class="flex" style="gap: 6px">
-                <ItemIcon :icon="m.icon" :name="m.name" :size="22" />
-                <span>{{ m.name }}</span>
-              </span>
-              <span v-if="m.npc_limited" class="tag limited"
-                    title="NPC 限量供应（如草药），已按拍卖行计价">限量</span>
-            </td><td class="num">{{ Math.round(m.qty) }}</td>
-            <td class="num money"><Money v-if="m.cost !== null" :value="m.cost" /><span v-else>—</span></td>
-          </tr>
-        </tbody>
-      </table>
-
-      <div class="flex" style="margin-top: 14px">
+      <!-- 采用按钮放在结果顶部，避免长清单把按钮挤到页面外 -->
+      <div class="flex flex-wrap" style="margin: 4px 0 10px; gap: 8px">
         <button class="btn primary" @click="onAdopt">采用此路线（按我的价格重算）</button>
         <button class="btn" @click="detail = null">关闭</button>
       </div>
-      <div v-if="recalc" class="alert info" style="margin-top: 10px">
+      <div v-if="recalc" class="alert info" style="margin-top: 0">
         按你服务器当前价格重算：总制作 {{ Math.round(recalc.totals.crafts) }} 次，净成本
         <Money :value="recalc.totals.net" />
         （保存时为 <Money :value="detail.totals.net" />）。参数与屏蔽/确认设置已载入冲级计划页。
+      </div>
+
+      <h3>路线步骤</h3>
+      <div style="overflow-x: auto">
+        <table class="grid nowrap" v-if="detail.steps.length">
+          <thead>
+            <tr><th>技能区间</th><th>制作</th><th class="num">次数</th><th>档位</th><th class="num">净成本</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="(s, i) in detail.steps" :key="i">
+              <td class="money">{{ Math.round(s.skill_from) }} → {{ Math.round(s.skill_to) }}</td>
+              <td>
+                <span class="flex" style="gap: 6px">
+                  <ItemIcon :icon="s.product_icon" :name="s.recipe_name" :size="22"
+                            :item-id="s.product_item_id" />
+                  <span>{{ s.recipe_name }}</span>
+                </span>
+              </td>
+              <td class="num">{{ Math.round(s.crafts) }}</td>
+              <td>{{ s.band === "orange" ? "橙" : s.band === "yellow" ? "黄" : "绿" }} {{ probLabel(s) }}</td>
+              <td class="num money" :class="s.net < 0 ? 'pos' : ''"><Money :value="s.net" /></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>材料清单</h3>
+      <div style="overflow-x: auto">
+        <table class="grid nowrap" v-if="detail.materials.length">
+          <thead><tr><th>材料</th><th class="num">数量</th><th class="num">小计</th></tr></thead>
+          <tbody>
+            <tr v-for="m in detail.materials" :key="m.item_id">
+              <td>
+                <span class="flex" style="gap: 6px">
+                  <ItemIcon :icon="m.icon" :name="m.name" :size="22" :item-id="m.item_id" />
+                  <span>{{ m.name }}</span>
+                </span>
+                <span v-if="m.kind === 'design'" class="tag design">设计图</span>
+              </td><td class="num">{{ Math.round(m.qty) }}</td>
+              <td class="num money"><Money v-if="m.cost !== null" :value="m.cost" /><span v-else>—</span></td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -108,10 +122,11 @@
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { api } from "@/api/client";
+import FactionIcon from "@/components/FactionIcon.vue";
 import ItemIcon from "@/components/ItemIcon.vue";
 import Money from "@/components/Money.vue";
 import { useSessionStore } from "@/stores/session";
-import type { CalcResult, CalcStep, Profession, RouteDetail, RouteListItem } from "@/types";
+import type { CalcResult, CalcStep, Faction, Profession, RouteDetail, RouteListItem } from "@/types";
 
 const session = useSessionStore();
 const router = useRouter();
@@ -155,7 +170,7 @@ async function onAdopt() {
     alert("请先选择服务器");
     return;
   }
-  session.setServer(detail.value.server.id, detail.value.server.name);
+  session.setServer(detail.value.server.id, detail.value.server.name, (detail.value.server.faction as Faction) ?? "both");
   session.setProfession(detail.value.profession.key);
   session.applyParams(detail.value.params);
   recalc.value = await api.routeRecalc(detail.value.share_code);

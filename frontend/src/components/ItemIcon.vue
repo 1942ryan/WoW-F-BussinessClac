@@ -2,19 +2,27 @@
 /**
  * 物品图标：优先无限官方库图标（API 返回的 icon 字段，即 /tubiao/<name>.jpg）。
  * 官方图裂/缺失时回退原版 wowhead 图标 CDN（图标命名体系一致，inv_xxx / spell_xxx）。
+ *
+ * 传入 itemId 后启用悬停详情：鼠标停留弹出 wowhead 风格物品信息卡
+ * （等级/类型/卖店价/拍卖行有效价，见 ItemTooltip.vue）。
  */
 import { computed, ref } from "vue";
+import ItemTooltip from "./ItemTooltip.vue";
 
 const props = withDefaults(
   defineProps<{
     icon?: string | null;
     name?: string;
     size?: number;
+    /** 传入后启用悬停物品详情 tooltip */
+    itemId?: number | null;
   }>(),
-  { icon: null, name: "", size: 24 }
+  { icon: null, name: "", size: 24, itemId: null }
 );
 
 const fallback = ref(false);
+const hovering = ref(false);
+const wrapEl = ref<HTMLElement | null>(null);
 
 /** 从官方 URL 提取图标名：https://wowforever.wclbox.com/tubiao/inv_ingot_02.jpg -> inv_ingot_02 */
 const iconName = computed(() => {
@@ -41,22 +49,43 @@ function onError() {
 </script>
 
 <template>
-  <img
-    v-if="src"
-    class="item-icon"
-    :src="src"
-    :width="size"
-    :height="size"
-    :title="name || undefined"
-    :alt="name || ''"
-    loading="lazy"
-    decoding="async"
-    @error="onError"
-  />
-  <span v-else class="item-icon item-icon-empty" :style="{ width: size + 'px', height: size + 'px' }" />
+  <span
+    ref="wrapEl"
+    class="ic-wrap"
+    :class="{ 'ic-hover': itemId != null }"
+    @mouseenter="itemId != null && (hovering = true)"
+    @mouseleave="hovering = false"
+  >
+    <img
+      v-if="src"
+      class="item-icon"
+      :src="src"
+      :width="size"
+      :height="size"
+      :title="itemId == null ? (name || undefined) : undefined"
+      :alt="name || ''"
+      loading="lazy"
+      decoding="async"
+      @error="onError"
+    />
+    <span v-else class="item-icon item-icon-empty" :style="{ width: size + 'px', height: size + 'px' }" />
+    <ItemTooltip
+      v-if="itemId != null"
+      :item-id="itemId"
+      :visible="hovering"
+      :anchor="wrapEl"
+      @keep="hovering = true"
+      @leave="hovering = false"
+    />
+  </span>
 </template>
 
 <style scoped>
+.ic-wrap {
+  display: inline-flex;
+  flex: none;
+  position: relative;
+}
 .item-icon {
   display: inline-block;
   vertical-align: middle;

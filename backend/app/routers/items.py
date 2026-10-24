@@ -1,13 +1,16 @@
-"""物品搜索路由（价格导入校对 / 手动录价用）。"""
+"""物品搜索路由（价格导入校对 / 手动录价 / 图标悬停详情用）。"""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from ..config import get_settings
 from ..database import get_db
-from ..models import Item
+from ..models import Item, PriceRecord
+from ..schemas import ItemDetailOut
+from ..services.calc import effective_prices
 from ..services.importer import normalize_name
 
 router = APIRouter(prefix="/items", tags=["items"])
@@ -36,19 +39,35 @@ def search_items(
     ]
 
 
-@router.get("/{item_id}")
-def item_detail(item_id: int, db: Session = Depends(get_db)) -> dict:
+@router.get("/{item_id}", response_model=ItemDetailOut)
+def item_detail(item_id: int, server_id: int | None = Query(default=None), db: Session = Depends(get_db)) -> ItemDetailOut:
+    """物品详情（悬停 tooltip 用）：等级/类型/卖店价 + 当前服务器拍卖行有效价。"""
     item = db.get(Item, item_id)
     if item is None:
         raise HTTPException(404, "物品不存在")
-    return {
-        "item_id": item.id,
-        "name": item.name,
-        "name_en": item.name_en,
-        "quality": item.quality,
-        "item_level": item.item_level,
-        "type": item.type,
-        "status": item.status,
-        "icon": item.icon,
-        "vendor_price": item.vendor_price,
-    }
+    effective_ah: int | None = None
+    record_count = 0
+    if server_id:
+        prices = effective_prices(db, server_id, "latest", get_settings().median_window_days)
+        effective_ah = prices.get(item_id)
+        record_count = (
+            db.execute(
+                select(func.count()).select_from(PriceRecord).where(
+                    PriceRecord.server_id == server_id, PriceRecord.item_id == item_id
+                )
+            ).scalar()
+            or 0
+        )
+    return ItemDetailOut(
+        item_id=item.id,
+        name=item.name,
+        name_en=item.name_en,
+        quality=item.quality or 0,
+        item_level=item.item_level,
+        type=item.type,
+        status=item.status,
+        icon=item.icon,
+        vendor_price=item.vendor_price,
+        effective_ah=effective_ah,
+        record_count=record_count,
+    )

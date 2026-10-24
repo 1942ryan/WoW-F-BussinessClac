@@ -35,9 +35,9 @@
           </button>
         </div>
         <div v-if="showAll" class="icon-preview">
-          <span v-for="it in watch.items.slice(0, previewLimit)" :key="it.item_id" class="icon-cell" :title="it.name">
-            <ItemIcon :icon="it.icon" :name="it.name" :size="28" />
-          </span>
+        <span v-for="it in watch.items.slice(0, previewLimit)" :key="it.item_id" class="icon-cell" :title="it.name">
+            <ItemIcon :icon="it.icon" :name="it.name" :size="28" :item-id="it.item_id" />
+        </span>
           <span v-if="watch.items.length > previewLimit" class="muted" style="align-self: center">
             ……等共 {{ watch.items.length }} 个
           </span>

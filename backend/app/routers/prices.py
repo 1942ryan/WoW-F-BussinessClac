@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..database import get_db
-from ..models import Item, PriceBatch, PriceRecord, Server
+from ..models import FACTION_BOTH, Item, PriceBatch, PriceRecord, Server
 from ..services.calc import effective_prices
 from ..schemas import (
     EffectivePriceOut,
@@ -82,6 +82,7 @@ async def import_prices(
     existing_ids = {
         i for (i,) in db.execute(select(Item.id)).all()
     }
+    faction = server.faction or FACTION_BOTH
     records: list[PriceRecord] = []
     unmatched: list[str] = []
     matched_rows = 0
@@ -92,7 +93,7 @@ async def import_prices(
             continue
         matched_rows += 1
         records.extend(
-            PriceRecord(server_id=server_id, item_id=item_id, unit_price=row.price)
+            PriceRecord(server_id=server_id, item_id=item_id, unit_price=row.price, faction=faction)
             for item_id in ids
         )
 
@@ -138,12 +139,15 @@ def manual_price(payload: ManualPriceIn, db: Session = Depends(get_db)) -> Impor
     )
     db.add(batch)
     db.flush()
+    server = db.get(Server, payload.server_id)
+    faction = (server.faction if server else None) or FACTION_BOTH
     db.add(
         PriceRecord(
             batch_id=batch.id,
             server_id=payload.server_id,
             item_id=payload.item_id,
             unit_price=payload.unit_price,
+            faction=faction,
         )
     )
     db.commit()
@@ -179,6 +183,15 @@ def list_batches(server_id: int, db: Session = Depends(get_db)) -> list[dict]:
     ]
 
 
+def _faction_scope(db: Session, server_id: int):
+    """返回该服务器可见的阵营条件（None=不区分）。"""
+    server = db.get(Server, server_id)
+    faction = (server.faction if server else None) or FACTION_BOTH
+    if faction == FACTION_BOTH:
+        return None
+    return (PriceRecord.faction == faction) | (PriceRecord.faction == FACTION_BOTH)
+
+
 @router.get("", response_model=list[EffectivePriceOut])
 def effective_prices_list(
     server_id: int,
@@ -189,18 +202,26 @@ def effective_prices_list(
     db: Session = Depends(get_db),
 ) -> list[EffectivePriceOut]:
     prices = effective_prices(db, server_id, mode, get_settings().median_window_days)
+    faction_cond = _faction_scope(db, server_id)
+
+    def _rec(stmt):
+        stmt = stmt.where(PriceRecord.server_id == server_id)
+        if faction_cond is not None:
+            stmt = stmt.where(faction_cond)
+        return stmt
+
     counts = dict(
         db.execute(
-            select(PriceRecord.item_id, func.count())
-            .where(PriceRecord.server_id == server_id)
-            .group_by(PriceRecord.item_id)
+            _rec(select(PriceRecord.item_id, func.count()).group_by(PriceRecord.item_id))
         ).all()
     )
     last_at = dict(
         db.execute(
-            select(PriceRecord.item_id, func.max(PriceRecord.created_at))
-            .where(PriceRecord.server_id == server_id)
-            .group_by(PriceRecord.item_id)
+            _rec(
+                select(PriceRecord.item_id, func.max(PriceRecord.created_at)).group_by(
+                    PriceRecord.item_id
+                )
+            )
         ).all()
     )
     item_ids = sorted(prices)
@@ -232,16 +253,17 @@ def item_price_detail(
     if item is None:
         raise HTTPException(404, "物品不存在")
     prices = effective_prices(db, server_id, "latest", get_settings().median_window_days)
-    history = (
-        db.execute(
-            select(PriceRecord, PriceBatch.imported_by, PriceBatch.source)
-            .join(PriceBatch, PriceRecord.batch_id == PriceBatch.id)
-            .where(PriceRecord.server_id == server_id, PriceRecord.item_id == item_id)
-            .order_by(PriceRecord.id.desc())
-            .limit(100)
-        )
-        .all()
+    faction_cond = _faction_scope(db, server_id)
+    hist_stmt = (
+        select(PriceRecord, PriceBatch.imported_by, PriceBatch.source)
+        .join(PriceBatch, PriceRecord.batch_id == PriceBatch.id)
+        .where(PriceRecord.server_id == server_id, PriceRecord.item_id == item_id)
+        .order_by(PriceRecord.id.desc())
+        .limit(100)
     )
+    if faction_cond is not None:
+        hist_stmt = hist_stmt.where(faction_cond)
+    history = db.execute(hist_stmt).all()
     return ItemPriceOut(
         item_id=item.id,
         name=item.name,

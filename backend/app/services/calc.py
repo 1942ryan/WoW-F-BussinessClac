@@ -27,7 +27,16 @@ from datetime import datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import Item, PriceRecord, Profession, Recipe, RecipeMaterial, MaterialSource
+from ..models import (
+    FACTION_BOTH,
+    Item,
+    PriceRecord,
+    Profession,
+    Recipe,
+    RecipeMaterial,
+    MaterialSource,
+    Server,
+)
 from ..schemas import CalcIn
 
 
@@ -76,7 +85,22 @@ def effective_prices(
     mode: str,
     median_window_days: int = 0,
 ) -> dict[int, int]:
-    """某服务器下每个物品的有效价格：latest=最新一条流水；median=中位数。"""
+    """某服务器下每个物品的有效价格：latest=最新一条流水；median=中位数。
+
+    联盟/部落价格隔离：服务器标记了阵营（非 both）时，只取该阵营导入的流水
+    （both 的旧数据作为公共底价保留可见）。
+    """
+    server = db.get(Server, server_id)
+    faction = server.faction if server else FACTION_BOTH
+
+    def _scope(stmt):
+        stmt = stmt.where(PriceRecord.server_id == server_id)
+        if faction != FACTION_BOTH:
+            stmt = stmt.where(
+                (PriceRecord.faction == faction) | (PriceRecord.faction == FACTION_BOTH)
+            )
+        return stmt
+
     if mode == "latest":
         # 可移植写法：每物品取最大 id（id 自增≈时间顺序）对应的流水
         latest_ids_sq = (
@@ -86,8 +110,12 @@ def effective_prices(
             )
             .where(PriceRecord.server_id == server_id)
             .group_by(PriceRecord.item_id)
-            .subquery()
         )
+        if faction != FACTION_BOTH:
+            latest_ids_sq = latest_ids_sq.where(
+                (PriceRecord.faction == faction) | (PriceRecord.faction == FACTION_BOTH)
+            )
+        latest_ids_sq = latest_ids_sq.subquery()
         rows = db.execute(
             select(PriceRecord.item_id, PriceRecord.unit_price)
             .join(
@@ -100,9 +128,8 @@ def effective_prices(
         return {item_id: price for item_id, price in rows}
 
     # median：取全部（或窗口内）流水按物品算中位数
-    stmt = select(PriceRecord.item_id, PriceRecord.unit_price, PriceRecord.created_at).where(
-        PriceRecord.server_id == server_id
-    )
+    stmt = select(PriceRecord.item_id, PriceRecord.unit_price, PriceRecord.created_at)
+    stmt = _scope(stmt)
     if median_window_days > 0:
         since = datetime.utcnow() - timedelta(days=median_window_days)
         stmt = stmt.where(PriceRecord.created_at >= since)
@@ -592,14 +619,14 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
                     }
                 )
 
-    # 合并相邻的「同配方 + 同档位」步骤（事件点切分过细，合并后更易读）
+    # 合并相邻的「同配方」步骤（即使跨档位边界也合并，同一产品连续做显示为一段；
+    # 档位几率区间 prob→prob_end 自然展示 100%→20% 的衰减）
     merged_steps: list[dict] = []
     for st in steps:
         last = merged_steps[-1] if merged_steps else None
         if (
             last
             and last["recipe_id"] == st["recipe_id"]
-            and last["band"] == st["band"]
             and abs(last["skill_to"] - st["skill_from"]) < 0.01
         ):
             last["skill_to"] = st["skill_to"]
@@ -608,10 +635,11 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
             last["revenue"] += st["revenue"]
             last["net"] += st["net"]
             last["design_cost"] += st["design_cost"]
+            last["prob_end"] = st["prob_end"]
             if st["design_name"] and not last["design_name"]:
                 last["design_name"] = st["design_name"]
         else:
-            merged_steps.append(st)
+            merged_steps.append(dict(st))
     steps = merged_steps
 
     # 材料单价与来源
@@ -650,7 +678,6 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
                 "price_source": source,
                 "cost": unit * agg["qty"] if unit is not None else None,
                 "kind": agg.get("kind", "material"),
-                "npc_limited": limited,
             }
         )
     materials.sort(key=lambda m: (m["cost"] is None, -(m["cost"] or 0)))

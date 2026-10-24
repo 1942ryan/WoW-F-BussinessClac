@@ -77,9 +77,9 @@ def test_import_and_calc_and_share_flow(client, db_session):
         },
     )
     calc = r.json()
-    assert len(calc["steps"]) == 3  # 1→10 橙、10→12 黄、12→15 绿
+    assert len(calc["steps"]) == 1  # 同配方跨档位合并：1→15 连续做货品A
     assert calc["steps"][0]["recipe_name"] == "货品A"
-    assert calc["steps"][0]["crafts"] == 9  # 橙档 100%，需 9 点
+    assert calc["steps"][0]["crafts"] == pytest.approx(20.4166666, abs=1e-3)  # 橙9+黄2.25+绿9.17
     # 公式模式总期望次数：9 + (1/1.0+1/0.8) + (1/0.6+1/0.4+1/0.2)
     assert calc["totals"]["crafts"] == pytest.approx(20.4166666, abs=1e-3)
 
@@ -110,7 +110,7 @@ def test_import_and_calc_and_share_flow(client, db_session):
 
     # 他人采用：按当前价格重算
     recalc = client.post(f"/api/v1/routes/{code}/recalc").json()
-    assert len(recalc["steps"]) == 3
+    assert len(recalc["steps"]) == 1  # 同配方跨档位合并为一段
     assert recalc["params"]["product_disposition"] == "sell_npc"
 
 

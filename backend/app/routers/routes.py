@@ -31,7 +31,7 @@ def calculate(params: CalcIn, db: Session = Depends(get_db)) -> CalcOut:
     if db.get(Server, params.server_id) is None:
         raise HTTPException(404, "服务器不存在")
     server = db.get(Server, params.server_id)
-    result["server"] = {"id": server.id, "name": server.name}
+    result["server"] = {"id": server.id, "name": server.name, "faction": server.faction}
     return CalcOut(**result)
 
 
@@ -136,7 +136,9 @@ def _detail_out(db: Session, route: SavedRoute, result: dict | None = None) -> R
         title=route.title,
         author=route.author,
         notes=route.notes,
-        server={"id": server.id, "name": server.name} if server else {},
+        server=(
+            {"id": server.id, "name": server.name, "faction": server.faction} if server else {}
+        ),
         profession={"key": prof.key, "name": prof.name} if prof else {},
         params=params,
         steps=result["steps"],
@@ -179,6 +181,7 @@ def list_routes(
                 title=r.title,
                 author=r.author,
                 server_name=server.name if server else "-",
+                server_faction=(server.faction if server else None) or "both",
                 profession_name=prof.name if prof else "-",
                 profession_key=prof.key if prof else "",
                 from_skill=r.from_skill,
@@ -235,5 +238,7 @@ def route_recalc(share_code: str, db: Session = Depends(get_db)) -> CalcOut:
     )
     result = _calc_or_400(db, params)
     server = db.get(Server, route.server_id)
-    result["server"] = {"id": server.id, "name": server.name} if server else {}
+    result["server"] = (
+        {"id": server.id, "name": server.name, "faction": server.faction} if server else {}
+    )
     return CalcOut(**result)

@@ -11,6 +11,7 @@ PriceMode = Literal["latest", "median"]
 Disposition = Literal["sell_ah", "sell_npc", "self_use"]
 DesignCost = Literal["ah", "drop"]
 ProbMode = Literal["formula", "fixed"]
+Faction = Literal["alliance", "horde", "both"]
 
 
 # ---------- 通用 ----------
@@ -26,11 +27,13 @@ class OkOut(BaseModel):
 
 class ServerIn(BaseModel):
     name: str = Field(min_length=1, max_length=64)
+    faction: Faction = "both"
 
 
 class ServerOut(BaseModel):
     id: int
     name: str
+    faction: str = "both"
     batch_count: int = 0
     route_count: int = 0
     created_at: datetime | None = None
@@ -41,6 +44,7 @@ class ServerOut(BaseModel):
 class ServerCreatedOut(BaseModel):
     id: int
     name: str
+    faction: str = "both"
     existed: bool
 
 
@@ -66,7 +70,6 @@ class MaterialOut(BaseModel):
     unit_price: int | None = None  # 铜；None=无价格
     price_source: str | None = None  # ah | npc | None
     line_cost: int | None = None  # qty * unit_price
-    npc_limited: bool = False  # NPC 限量供应（如草药），不采用 NPC 价
 
 
 class RecipeOut(BaseModel):
@@ -91,6 +94,9 @@ class RecipeOut(BaseModel):
     net_cost: int | None = None
     blocked: bool = False
     confirmed: bool = False
+    # 产物双价格（单次产出，铜）：卖店价 / 拍卖行有效价（无流水为 None）
+    product_npc_price: int | None = None
+    product_ah_price: int | None = None
 
 
 # ---------- 价格 ----------
@@ -200,7 +206,6 @@ class MaterialTotalOut(BaseModel):
     price_source: str | None
     cost: float | None
     kind: str = "material"  # material | design
-    npc_limited: bool = False  # NPC 限量供应，只按拍卖行计价
 
 
 class CalcTotalsOut(BaseModel):
@@ -267,12 +272,30 @@ class WatchlistOut(BaseModel):
     text: str  # AUC 关注清单文本：清单名^物品1^物品2…
 
 
+# ---------- 物品详情（图标悬停 tooltip 用） ----------
+
+
+class ItemDetailOut(BaseModel):
+    item_id: int
+    name: str
+    name_en: str | None = None
+    quality: int = 0
+    item_level: int | None = None
+    type: str | None = None
+    status: str | None = None
+    icon: str | None = None
+    vendor_price: int = 0  # 卖店价（铜）
+    effective_ah: int | None = None  # 当前服务器拍卖行有效价（铜）
+    record_count: int = 0  # 价格流水条数
+
+
 class RouteListItemOut(BaseModel):
     id: int
     share_code: str
     title: str
     author: str | None
     server_name: str
+    server_faction: str = "both"
     profession_name: str
     profession_key: str
     from_skill: int

@@ -20,11 +20,18 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 
 
+FACTION_ALLIANCE = "alliance"
+FACTION_HORDE = "horde"
+FACTION_BOTH = "both"
+
+
 class Server(Base):
     __tablename__ = "servers"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    # 阵营：联盟/部落价格互不可见；both=不区分（单阵营服或尚未划分）
+    faction: Mapped[str] = mapped_column(String(16), default=FACTION_BOTH, server_default=FACTION_BOTH)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     batches: Mapped[list["PriceBatch"]] = relationship(back_populates="server")
@@ -146,6 +153,8 @@ class PriceRecord(Base):
     server_id: Mapped[int] = mapped_column(ForeignKey("servers.id"), index=True)
     item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), index=True)
     unit_price: Mapped[int] = mapped_column(Integer)  # 铜
+    # 导入时玩家所属阵营（取服务器的 faction）；both=不区分阵营的共享价
+    faction: Mapped[str] = mapped_column(String(16), default=FACTION_BOTH, server_default=FACTION_BOTH, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     batch: Mapped[PriceBatch] = relationship(back_populates="records")

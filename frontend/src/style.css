@@ -118,6 +118,9 @@ table.grid td { border-bottom: 1px solid #efe9db; padding: 6px 8px; vertical-ali
 table.grid tr:hover td { background: #fbf8f1; }
 table.grid td.num, table.grid th.num { text-align: right; font-variant-numeric: tabular-nums; }
 table.grid tr.used td { background: #f0f7ec; }
+/* nowrap 表格：单元格不折行（配外层 overflow-x:auto 横向滚动）；.wrap 列例外 */
+table.grid.nowrap td { white-space: nowrap; }
+table.grid td.wrap, table.grid th.wrap { white-space: normal; }
 
 .tag {
   display: inline-block;

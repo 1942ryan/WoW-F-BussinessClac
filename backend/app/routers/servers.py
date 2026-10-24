@@ -26,6 +26,7 @@ def list_servers(db: Session = Depends(get_db)) -> list[ServerOut]:
         ServerOut(
             id=s.id,
             name=s.name,
+            faction=s.faction,
             batch_count=batch_counts.get(s.id, 0),
             route_count=route_counts.get(s.id, 0),
             created_at=s.created_at,
@@ -41,9 +42,9 @@ def create_server(payload: ServerIn, db: Session = Depends(get_db)) -> ServerCre
         raise HTTPException(400, "服务器名称不能为空")
     existing = db.execute(select(Server).where(Server.name == name)).scalar_one_or_none()
     if existing:
-        return ServerCreatedOut(id=existing.id, name=existing.name, existed=True)
-    server = Server(name=name)
+        return ServerCreatedOut(id=existing.id, name=existing.name, faction=existing.faction, existed=True)
+    server = Server(name=name, faction=payload.faction)
     db.add(server)
     db.commit()
     db.refresh(server)
-    return ServerCreatedOut(id=server.id, name=server.name, existed=False)
+    return ServerCreatedOut(id=server.id, name=server.name, faction=server.faction, existed=False)
