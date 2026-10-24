@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.db
+*.db-journal
+.pytest_cache/
+
+# Node
+node_modules/
+frontend/dist/
+
+# 抓取中间产物与本地数据库
+backend/data/items_progress.json
+backend/wowfc.db
+backend/tests/test_wowfc.db
+backend/calc_bs.json
+backend/calc_bs2.json
+backend/static/
+_research/
+
+# 环境变量与编辑器
+.env
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: wowfc
+      POSTGRES_PASSWORD: wowfc
+      POSTGRES_DB: wowfc
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wowfc"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      WOWFC_DATABASE_URL: postgresql+psycopg://wowfc:wowfc@db:5432/wowfc
+      WOWFC_CORS_ORIGINS: "*"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    # 首次启动灌入种子数据（2150 配方 + 3979 物品）：
+    #   docker compose exec app python -m app.seed
+
+volumes:
+  pgdata:
