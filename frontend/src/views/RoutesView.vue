@@ -17,7 +17,7 @@
       <thead>
         <tr>
           <th>标题</th><th>专业</th><th>服务器</th><th>作者</th>
-          <th>区间</th><th>价格口径</th><th class="num">净成本</th><th>时间</th><th></th>
+          <th>区间</th><th>价格口径</th><th class="num">花费</th><th>时间</th><th></th>
         </tr>
       </thead>
       <tbody>
@@ -33,7 +33,7 @@
           <td>{{ r.author ?? "匿名" }}</td>
           <td class="money">{{ r.from_skill }} → {{ r.to_skill }}</td>
           <td>{{ r.price_mode === "latest" ? "最新" : "中位数" }}</td>
-          <td class="num money" :class="r.net < 0 ? 'pos' : 'neg'"><Money :value="r.net" /></td>
+          <td class="num money"><Money :value="r.net" neg-as-earn /></td>
           <td class="muted">{{ r.created_at ? new Date(r.created_at).toLocaleDateString("zh-CN") : "—" }}</td>
           <td><button class="btn small" @click="openDetail(r)">查看 / 采用</button></td>
         </tr>
@@ -57,7 +57,7 @@
 
       <div class="summary-cards">
         <div class="card"><div class="k">总制作</div><div class="v">{{ Math.round(detail.totals.crafts) }}</div></div>
-        <div class="card"><div class="k">净成本</div><div class="v"><Money :value="detail.totals.net" :size="14" /></div></div>
+        <div class="card"><div class="k">花费</div><div class="v"><Money :value="detail.totals.net" :size="14" neg-as-earn /></div></div>
         <div class="card"><div class="k">分享码</div><div class="v" style="font-size: 14px">{{ detail.share_code }}</div></div>
       </div>
 
@@ -67,16 +67,16 @@
         <button class="btn" @click="detail = null">关闭</button>
       </div>
       <div v-if="recalc" class="alert info" style="margin-top: 0">
-        按你服务器当前价格重算：总制作 {{ Math.round(recalc.totals.crafts) }} 次，净成本
-        <Money :value="recalc.totals.net" />
-        （保存时为 <Money :value="detail.totals.net" />）。参数与屏蔽/确认设置已载入冲级计划页。
+        按你服务器当前价格重算：总制作 {{ Math.round(recalc.totals.crafts) }} 次，花费
+        <Money :value="recalc.totals.net" neg-as-earn />
+        （保存时为 <Money :value="detail.totals.net" neg-as-earn />）。参数与屏蔽/确认设置已载入冲级计划页。
       </div>
 
       <h3>路线步骤</h3>
       <div style="overflow-x: auto">
         <table class="grid nowrap" v-if="detail.steps.length">
           <thead>
-            <tr><th>技能区间</th><th>制作</th><th class="num">次数</th><th>档位</th><th class="num">净成本</th></tr>
+            <tr><th>技能区间</th><th>制作</th><th class="num">次数</th><th>档位</th><th class="num">花费</th></tr>
           </thead>
           <tbody>
             <tr v-for="(s, i) in detail.steps" :key="i">
@@ -90,7 +90,7 @@
               </td>
               <td class="num">{{ Math.round(s.crafts) }}</td>
               <td>{{ s.band === "orange" ? "橙" : s.band === "yellow" ? "黄" : "绿" }} {{ probLabel(s) }}</td>
-              <td class="num money" :class="s.net < 0 ? 'pos' : ''"><Money :value="s.net" /></td>
+              <td class="num money"><Money :value="s.net" neg-as-earn /></td>
             </tr>
           </tbody>
         </table>

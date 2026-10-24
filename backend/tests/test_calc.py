@@ -276,6 +276,74 @@ class TestCalcRoute:
         b_steps = [s for s in result["steps"] if s["recipe_id"] == b_id]
         assert sum(s["crafts"] for s in b_steps) == 5
 
+    def test_confirmed_count_is_cap_not_target(self, db_session):
+        """确认次数是上限不是目标：A 本来就会被选中，次数填 999 也不改变路线。"""
+        _prof, server, _ = _build_scenario(db_session)
+        a_id = db_session.query(Recipe).filter_by(product_name="货品A").one().id
+        base = calc_route(
+            db_session,
+            CalcIn(server_id=server.id, profession_key="test", from_skill=1, to_skill=15),
+            _settings(),
+        )
+        conf = calc_route(
+            db_session,
+            CalcIn(
+                server_id=server.id,
+                profession_key="test",
+                from_skill=1,
+                to_skill=15,
+                confirmed_recipe_ids=[a_id],
+                confirmed_counts={a_id: 999},
+            ),
+            _settings(),
+        )
+        assert [s["recipe_name"] for s in conf["steps"]] == [s["recipe_name"] for s in base["steps"]]
+        assert conf["totals"]["crafts"] == pytest.approx(base["totals"]["crafts"])
+        assert conf["totals"]["net"] == base["totals"]["net"]
+
+    def test_confirmed_no_effect_when_unavailable(self, db_session):
+        """确认当前技能段用不到的配方（未解锁）→ 路线完全不变。"""
+        _prof, server, _ = _build_scenario(db_session)
+        c_id = db_session.query(Recipe).filter_by(product_name="货品C").one().id
+        base = calc_route(
+            db_session,
+            CalcIn(server_id=server.id, profession_key="test", from_skill=1, to_skill=15),
+            _settings(),
+        )
+        conf = calc_route(
+            db_session,
+            CalcIn(
+                server_id=server.id,
+                profession_key="test",
+                from_skill=1,
+                to_skill=15,
+                confirmed_recipe_ids=[c_id],
+                confirmed_counts={c_id: 5},
+            ),
+            _settings(),
+        )
+        assert [s["recipe_name"] for s in conf["steps"]] == [s["recipe_name"] for s in base["steps"]]
+        assert conf["totals"]["crafts"] == pytest.approx(base["totals"]["crafts"])
+
+    def test_confirmed_priority_over_cheaper(self, db_session):
+        """确认采用=优先权：B 确认且次数够大时，从 10 一路做到 40，绕过更便宜的 A。"""
+        _prof, server, _ = _build_scenario(db_session)
+        b_id = db_session.query(Recipe).filter_by(product_name="货品B").one().id
+        result = calc_route(
+            db_session,
+            CalcIn(
+                server_id=server.id,
+                profession_key="test",
+                from_skill=10,
+                to_skill=40,
+                confirmed_recipe_ids=[b_id],
+                confirmed_counts={b_id: 999},
+            ),
+            _settings(),
+        )
+        assert [s["recipe_name"] for s in result["steps"]] == ["货品B"]
+        assert result["steps"][0]["confirmed"] is True
+
     def test_recipe_disposition_override(self, db_session):
         """单配方处置覆盖：B 改卖店（vendor 0）后收入为 0，A 仍走全局拍卖。"""
         _prof, server, _ = _build_scenario(db_session)

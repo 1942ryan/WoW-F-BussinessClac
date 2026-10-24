@@ -155,7 +155,7 @@ export interface CalcTotals {
   net_display: string;
 }
 
-export type Disposition = "sell_ah" | "sell_npc" | "self_use";
+export type Disposition = "sell_ah" | "sell_npc";
 export type ProbMode = "formula" | "fixed";
 
 export interface CalcParams {
@@ -164,18 +164,13 @@ export interface CalcParams {
   from_skill: number;
   to_skill: number;
   price_mode: "latest" | "median";
-  product_disposition: Disposition;
+  /** 全局成品处置（固定为卖拍卖行；单配方可在配方列表覆盖） */
+  product_disposition?: Disposition;
   blocked_recipe_ids: number[];
   blocked_item_ids: number[];
   confirmed_recipe_ids: number[];
   confirmed_counts?: Record<string, number>;
   recipe_dispositions?: Record<string, Disposition>;
-  include_designs: boolean;
-  design_cost: "ah" | "drop";
-  prob_mode?: ProbMode;
-  prob_orange?: number | null;
-  prob_yellow?: number | null;
-  prob_green?: number | null;
 }
 
 export interface CalcResult {

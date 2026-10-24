@@ -1,8 +1,8 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
-import type { CalcParams, Disposition, Faction, ProbMode } from "@/types";
+import type { CalcParams, Disposition, Faction } from "@/types";
 
-const LS_KEY = "wowfc-session-v1";
+const LS_KEY = "wowfc-session-v2";
 
 interface SessionState {
   serverId: number | null;
@@ -13,21 +13,13 @@ interface SessionState {
   fromSkill: number;
   toSkill: number;
   priceMode: "latest" | "median";
-  disposition: Disposition;
-  includeDesigns: boolean;
-  designCost: "ah" | "drop";
   blockedRecipeIds: number[];
   blockedItemIds: number[];
   confirmedRecipeIds: number[];
   /** 确认配方的制作次数 {recipeId: count}，默认 1（长 CD 配方手填） */
   confirmedCounts: Record<string, number>;
-  /** 单配方产物处置覆盖 {recipeId: 处置}，缺省跟随全局 */
+  /** 单配方产物处置覆盖 {recipeId: 处置}，缺省跟随全局（全局固定为卖拍卖行） */
   recipeDispositions: Record<string, Disposition>;
-  /** 涨点几率模型：formula=客户端公式；fixed=固定档位 */
-  probMode: ProbMode;
-  probOrange: number;
-  probYellow: number;
-  probGreen: number;
 }
 
 function load(): SessionState {
@@ -49,18 +41,11 @@ function defaults(): SessionState {
     fromSkill: 1,
     toSkill: 75,
     priceMode: "latest",
-    disposition: "sell_ah",
-    includeDesigns: true,
-    designCost: "ah",
     blockedRecipeIds: [],
     blockedItemIds: [],
     confirmedRecipeIds: [],
     confirmedCounts: {},
     recipeDispositions: {},
-    probMode: "formula",
-    probOrange: 100,
-    probYellow: 50,
-    probGreen: 25,
   };
 }
 
@@ -91,33 +76,6 @@ export const useSessionStore = defineStore("session", () => {
 
   function setPriceMode(mode: "latest" | "median") {
     state.value.priceMode = mode;
-    persist();
-  }
-
-  function setDisposition(d: Disposition) {
-    state.value.disposition = d;
-    persist();
-  }
-
-  function setIncludeDesigns(v: boolean) {
-    state.value.includeDesigns = v;
-    persist();
-  }
-
-  function setDesignCost(v: "ah" | "drop") {
-    state.value.designCost = v;
-    persist();
-  }
-
-  function setProbMode(m: ProbMode) {
-    state.value.probMode = m;
-    persist();
-  }
-
-  function setProb(kind: "orange" | "yellow" | "green", pct: number) {
-    if (!Number.isFinite(pct)) return;
-    const key = `prob${kind[0].toUpperCase()}${kind.slice(1)}` as "probOrange";
-    state.value[key] = pct;
     persist();
   }
 
@@ -179,18 +137,16 @@ export const useSessionStore = defineStore("session", () => {
     state.value.fromSkill = p.from_skill;
     state.value.toSkill = p.to_skill;
     state.value.priceMode = p.price_mode;
-    state.value.disposition = p.product_disposition;
-    state.value.includeDesigns = p.include_designs;
-    state.value.designCost = p.design_cost ?? "ah";
     state.value.blockedRecipeIds = [...p.blocked_recipe_ids];
     state.value.blockedItemIds = [...p.blocked_item_ids];
     state.value.confirmedRecipeIds = [...p.confirmed_recipe_ids];
     state.value.confirmedCounts = { ...(p.confirmed_counts ?? {}) };
-    state.value.recipeDispositions = { ...(p.recipe_dispositions ?? {}) };
-    if (p.prob_mode) state.value.probMode = p.prob_mode;
-    if (p.prob_orange != null) state.value.probOrange = p.prob_orange * 100;
-    if (p.prob_yellow != null) state.value.probYellow = p.prob_yellow * 100;
-    if (p.prob_green != null) state.value.probGreen = p.prob_green * 100;
+    // 兼容旧路线里的 self_use 覆盖（该选项已下线）：丢弃，回落到默认卖拍卖行
+    const disp: Record<string, Disposition> = {};
+    for (const [k, v] of Object.entries(p.recipe_dispositions ?? {})) {
+      if (v === "sell_ah" || v === "sell_npc") disp[k] = v;
+    }
+    state.value.recipeDispositions = disp;
     persist();
   }
 
@@ -201,18 +157,11 @@ export const useSessionStore = defineStore("session", () => {
       from_skill: state.value.fromSkill,
       to_skill: state.value.toSkill,
       price_mode: state.value.priceMode,
-      product_disposition: state.value.disposition,
       blocked_recipe_ids: state.value.blockedRecipeIds,
       blocked_item_ids: state.value.blockedItemIds,
       confirmed_recipe_ids: state.value.confirmedRecipeIds,
       confirmed_counts: { ...state.value.confirmedCounts },
       recipe_dispositions: { ...state.value.recipeDispositions },
-      include_designs: state.value.includeDesigns,
-      design_cost: state.value.designCost,
-      prob_mode: state.value.probMode,
-      prob_orange: state.value.probOrange / 100,
-      prob_yellow: state.value.probYellow / 100,
-      prob_green: state.value.probGreen / 100,
     };
   }
 
@@ -223,11 +172,6 @@ export const useSessionStore = defineStore("session", () => {
     setProfession,
     setRange,
     setPriceMode,
-    setDisposition,
-    setIncludeDesigns,
-    setDesignCost,
-    setProbMode,
-    setProb,
     toggleBlockRecipe,
     toggleConfirmRecipe,
     setConfirmedCount,

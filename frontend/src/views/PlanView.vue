@@ -5,351 +5,314 @@
   </div>
 
   <template v-else>
-    <div class="plan-layout">
-      <!-- ============ 左栏：计算参数（吸顶，操作按钮始终可见） ============ -->
-      <div class="plan-side">
-        <section class="panel">
-          <h2>
-            <span class="flex" style="gap: 8px; align-items: center">
-              <ItemIcon :icon="profIcon" :name="profName" :size="24" :item-id="null" />
-              计算参数 · {{ profName }}
-            </span>
-            <FactionIcon v-if="session.state.serverFaction !== 'both'"
-                         :faction="session.state.serverFaction" :size="18" style="margin-left: 6px" />
-          </h2>
-          <div class="flex flex-wrap" style="gap: 12px">
-            <label class="field">当前技能
-              <input type="number" min="0" max="375" v-model.number="fromSkill" style="width: 70px" />
-            </label>
-            <label class="field">目标技能
-              <input type="number" min="1" max="375" v-model.number="toSkill" style="width: 70px" />
-            </label>
-            <label class="field">价格口径
-              <select v-model="priceMode">
-                <option value="latest">最新数据</option>
-                <option value="median">中位数</option>
-              </select>
-            </label>
-          </div>
+    <!-- ============ 置顶：计算参数（全宽） ============ -->
+    <section class="panel">
+      <h2>
+        <span class="flex" style="gap: 8px; align-items: center">
+          <ItemIcon :icon="profIcon" :name="profName" :size="24" :item-id="null" />
+          计算参数 · {{ profName }}
+        </span>
+        <FactionIcon v-if="session.state.serverFaction !== 'both'"
+                     :faction="session.state.serverFaction" :size="18" style="margin-left: 6px" />
+      </h2>
 
-          <div class="flex flex-wrap" style="gap: 12px; margin-top: 10px">
-            <label class="field">涨点几率
-              <select v-model="probMode">
-                <option value="formula">客户端公式（推荐）</option>
-                <option value="fixed">固定档位</option>
-              </select>
-            </label>
-            <template v-if="probMode === 'fixed'">
-              <label class="field">橙
-                <input type="number" min="0" max="100" v-model.number="probOrange" style="width: 56px" />%
-              </label>
-              <label class="field">黄
-                <input type="number" min="0" max="100" v-model.number="probYellow" style="width: 56px" />%
-              </label>
-              <label class="field">绿
-                <input type="number" min="0" max="100" v-model.number="probGreen" style="width: 56px" />%
-              </label>
-            </template>
-          </div>
-          <p v-if="probMode === 'formula'" class="muted" style="margin: 6px 0 0; font-size: 12px; line-height: 1.5">
-            按 WoW 客户端实际公式：橙档 100%；黄/绿档几率 =(灰档−当前技能)/(灰档−黄档)，
-            即刚变黄仍接近必涨、变绿时约 50%、向灰档递减。感觉不符可切「固定档位」按经验自填。
-          </p>
+      <div class="param-row">
+        <label class="field">当前技能
+          <input type="number" min="0" max="375" v-model.number="fromSkill" style="width: 70px" />
+        </label>
+        <label class="field">目标技能
+          <input type="number" min="1" max="375" v-model.number="toSkill" style="width: 70px" />
+        </label>
+        <label class="field">价格口径
+          <select v-model="priceMode">
+            <option value="latest">最新数据</option>
+            <option value="median">中位数</option>
+          </select>
+        </label>
+        <button class="btn primary" @click="runCalc" :disabled="loading || !validRange">
+          {{ loading ? "计算中…" : "计算路线" }}
+        </button>
+        <button class="btn" @click="showImport = true" title="导入 AUC 价格后自动重算">价格导入</button>
+        <button class="btn" @click="showTemplate = true"
+                title="生成 AUC 关注清单，去游戏内按清单导出价格">导出模板</button>
+        <button class="btn" @click="showShopping = true" :disabled="!result || !result.materials.length"
+                title="本次路线的材料采购清单（默认折叠，点击在最右展开）">
+          材料采购清单<template v-if="result">（{{ result.materials.length }}）</template>
+        </button>
+      </div>
 
-          <div class="flex flex-wrap" style="gap: 12px; margin-top: 10px">
-            <label class="field">成品处置（默认）
-              <select v-model="disposition">
-                <option value="sell_ah">卖给拍卖行</option>
-                <option value="sell_npc">卖给 NPC</option>
-                <option value="self_use">自用（不计收入）</option>
-              </select>
-            </label>
-            <label class="field">
-              <input type="checkbox" v-model="includeDesigns" /> 含设计图配方
-            </label>
-            <label v-if="includeDesigns" class="field">图纸成本
-              <select v-model="designCost">
-                <option value="ah">拍卖行购买计入</option>
-                <option value="drop">掉落不计</option>
-              </select>
-            </label>
-          </div>
+      <div class="param-row">
+        <span class="pill">已屏蔽配方 {{ session.state.blockedRecipeIds.length }}</span>
+        <span class="pill">已屏蔽物品 {{ session.state.blockedItemIds.length }}</span>
+        <span class="pill">确认采用 {{ session.state.confirmedRecipeIds.length }}</span>
+        <button class="btn small" @click="onClearOverrides">清空全部屏蔽/确认</button>
+      </div>
 
-          <div class="flex flex-wrap" style="margin-top: 12px">
-            <button class="btn primary" @click="runCalc" :disabled="loading || !validRange">
-              {{ loading ? "计算中…" : "计算路线" }}
-            </button>
-            <button class="btn" @click="showImport = true" title="导入 AUC 价格后自动重算">价格导入</button>
-            <button class="btn" @click="showTemplate = true"
-                    title="生成 AUC 关注清单，去游戏内按清单导出价格">导出模板</button>
-          </div>
-          <div class="flex flex-wrap" style="margin-top: 10px">
-            <span class="pill">已屏蔽配方 {{ session.state.blockedRecipeIds.length }}</span>
-            <span class="pill">已屏蔽物品 {{ session.state.blockedItemIds.length }}</span>
-            <span class="pill">确认采用 {{ session.state.confirmedRecipeIds.length }}</span>
-            <button class="btn small" @click="onClearOverrides">清空全部屏蔽/确认</button>
-          </div>
-        </section>
+      <p class="muted rules-note">
+        计算规则已固定：涨点按 WoW 客户端公式（橙档 100%，黄/绿档 =(灰档−当前)/(灰档−黄档) 递减）；
+        成品默认卖拍卖行，可在下方配方列表逐条改「卖店」；设计图配方自动计入，图纸按拍卖行价一次性计入成本。
+      </p>
 
-        <!-- 确认采用列表（可填次数，应对长 CD 配方） -->
-        <section class="panel" v-if="confirmedList.length">
-          <h2>确认采用 · 制作次数</h2>
-          <p class="muted" style="margin: 0 0 8px; font-size: 12px; line-height: 1.5">
-            确认采用的配方会优先制作。长 CD 配方（如每日 1 次的转化）请在右侧填次数，
-            用完后自动退出路线；缺省按 1 次计。
-          </p>
+      <!-- 确认采用列表（可填次数）：次数是上限，不是强制制作量 -->
+      <details v-if="confirmedList.length" class="confirm-block">
+        <summary>确认采用 · 制作次数（{{ confirmedList.length }}）</summary>
+        <p class="muted" style="margin: 6px 0 8px; font-size: 12px; line-height: 1.5">
+          确认采用 = 当前技能下<b>优先做</b>这个配方 + <b>最多做 N 次</b>（次数是上限，不是目标）。
+          长 CD 配方（如每日 1 次的转化）按一个查询周期内可做次数填，用完后自动退出路线；
+          不填默认 1 次。若配方当前技能段用不到或本来就会被选中，确认与填次数都不会改变路线。
+        </p>
+        <table class="grid nowrap">
+          <thead><tr><th>配方</th><th class="num" style="width: 76px">次数</th><th></th></tr></thead>
+          <tbody>
+            <tr v-for="r in confirmedList" :key="r.id">
+              <td>
+                <span class="flex" style="gap: 6px">
+                  <ItemIcon :icon="r.product_icon" :name="r.product_name" :size="22"
+                            :item-id="r.product_item_id" />
+                  <span>{{ r.product_name }}</span>
+                </span>
+              </td>
+              <td class="num">
+                <input type="number" min="1" max="999" style="width: 60px"
+                       :value="session.confirmedCountOf(r.id)"
+                       @change="onCountChange(r.id, $event)" />
+              </td>
+              <td>
+                <button class="btn small danger" @click="session.toggleConfirmRecipe(r.id)">移除</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </details>
+    </section>
+
+    <!-- ============ 主体：左 3/4 配方列表，右 1/4 计算结果 ============ -->
+    <div class="plan-body">
+      <!-- 左栏：配方列表 -->
+      <section class="panel">
+        <h2>配方列表 · 点击操作</h2>
+        <div class="flex flex-wrap" style="margin-bottom: 10px">
+          <input v-model="recipeQuery" type="text" placeholder="搜索成品或材料名称…" style="width: 260px" />
+          <label class="field">
+            <input type="checkbox" v-model="onlyUsed" /> 只看路线用到的
+          </label>
+          <span class="muted">共 {{ filteredRecipes.length }} 个配方参与计算</span>
+        </div>
+        <div class="table-scroll">
           <table class="grid nowrap">
-            <thead><tr><th>配方</th><th class="num" style="width: 76px">次数</th><th></th></tr></thead>
+            <thead>
+              <tr>
+                <th>成品</th>
+                <th class="wrap">材料（单价/来源）</th>
+                <th class="num">生产成本</th>
+                <th>产物处置（点价格即选中）</th>
+                <th>技能档</th>
+                <th>来源</th>
+                <th class="num">实际成本</th>
+                <th>操作</th>
+              </tr>
+            </thead>
             <tbody>
-              <tr v-for="r in confirmedList" :key="r.id">
+              <tr v-for="r in visibleRecipes" :key="r.id"
+                  :class="{ used: isUsed(r.id) }">
                 <td>
                   <span class="flex" style="gap: 6px">
-                    <ItemIcon :icon="r.product_icon" :name="r.product_name" :size="22"
+                    <ItemIcon :icon="r.product_icon" :name="r.product_name" :size="24"
                               :item-id="r.product_item_id" />
                     <span>{{ r.product_name }}</span>
                   </span>
+                  <span v-if="r.product_qty > 1" class="muted"> ×{{ r.product_qty }}</span>
+                  <span v-if="r.is_new" class="tag new">新</span>
+                  <span v-if="r.product_kind === 'enchant'" class="tag trainer">附魔</span>
                 </td>
-                <td class="num">
-                  <input type="number" min="1" max="999" style="width: 60px"
-                         :value="session.confirmedCountOf(r.id)"
-                         @change="onCountChange(r.id, $event)" />
+                <td class="wrap">
+                  <div v-for="m in r.materials" :key="m.item_id" class="flex" style="gap: 4px">
+                    <ItemIcon :icon="m.icon" :name="m.name" :size="20" :item-id="m.item_id" />
+                    <span>{{ m.name }} ×{{ m.qty }}</span>
+                    <span v-if="m.unit_price !== null" class="money muted">
+                      <Money :value="m.unit_price" :size="11" />
+                      <span class="tag" :class="m.price_source === 'npc' ? 'npc' : 'ah'">
+                        {{ m.price_source === "npc" ? "NPC" : "拍卖" }}
+                      </span>
+                    </span>
+                    <span v-else class="neg">无价格</span>
+                    <button class="btn small danger" @click="onBlockItem(m.item_id)"
+                            :title="'屏蔽后，所有需要「' + m.name + '」的配方都不参与计算'">屏蔽</button>
+                  </div>
+                </td>
+                <td class="num"><Money v-if="r.mat_cost !== null" :value="r.mat_cost" /><span v-else>—</span></td>
+                <td>
+                  <div class="disp-btns">
+                    <button class="price-btn" :class="{ active: curDisp(r) === 'sell_npc' }"
+                            @click="onDispChange(r.id, 'sell_npc')"
+                            title="卖给 NPC（价 = 卖店价）">
+                      <span class="pb-k">卖店</span>
+                      <Money v-if="r.product_npc_price !== null" :value="r.product_npc_price" :size="12" />
+                      <span v-else class="muted">—</span>
+                    </button>
+                    <button class="price-btn" :class="{ active: curDisp(r) === 'sell_ah' }"
+                            @click="onDispChange(r.id, 'sell_ah')"
+                            title="卖给拍卖行（价 = 当前有效拍卖价）">
+                      <span class="pb-k">拍卖行</span>
+                      <Money v-if="r.product_ah_price !== null" :value="r.product_ah_price" :size="12" />
+                      <span v-else class="muted">无价</span>
+                    </button>
+                    <button v-if="session.recipeDispositionOf(r.id)" class="price-btn ghost"
+                            @click="onDispChange(r.id, '')" title="清除本配方覆盖，回到跟随全局（卖拍卖行）">↺</button>
+                  </div>
+                </td>
+                <td class="money">
+                  {{ r.skill_orange }} / {{ r.skill_yellow }} / {{ r.skill_green }} / {{ r.skill_gray }}
                 </td>
                 <td>
-                  <button class="btn small danger" @click="session.toggleConfirmRecipe(r.id)">移除</button>
+                  <span v-if="r.source_type === 'trainer'" class="tag trainer">训练师</span>
+                  <span v-else-if="r.source_type === 'design'" class="tag design">设计图</span>
+                  <span v-else class="tag trainer">{{ r.source_type }}</span>
+                </td>
+                <td class="num">
+                  <Money v-if="r.net_cost !== null" :value="r.net_cost" neg-as-earn />
+                  <span v-else>—</span>
+                </td>
+                <td style="white-space: nowrap">
+                  <button class="btn small" :class="{ active: session.state.blockedRecipeIds.includes(r.id) }"
+                          @click="session.toggleBlockRecipe(r.id)">
+                    {{ session.state.blockedRecipeIds.includes(r.id) ? "已屏蔽" : "屏蔽" }}
+                  </button>
+                  <button class="btn small" :class="{ active: session.state.confirmedRecipeIds.includes(r.id) }"
+                          @click="session.toggleConfirmRecipe(r.id)"
+                          title="确认采用：当前技能下优先做这个，次数是上限（默认 1 次）">
+                    {{ session.state.confirmedRecipeIds.includes(r.id) ? "已确认" : "确认采用" }}
+                  </button>
+                  <span v-if="session.state.confirmedRecipeIds.includes(r.id)" class="flex" style="gap: 2px; display: inline-flex">
+                    ×<input type="number" min="1" max="999" style="width: 52px"
+                            :value="session.confirmedCountOf(r.id)"
+                            @change="onCountChange(r.id, $event)"
+                            title="制作次数上限（长 CD 配方按周期内可做次数填）" />
+                  </span>
                 </td>
               </tr>
             </tbody>
           </table>
-        </section>
-      </div>
+        </div>
+      </section>
 
-      <!-- ============ 右栏：结果优先 ============ -->
-      <div class="plan-main">
-        <section class="panel" v-if="result">
-          <h2>
-            <span class="flex" style="gap: 8px; align-items: center">
-              <ItemIcon :icon="profIcon" :name="result.profession.name" :size="26" :item-id="null" />
-              计算结果 · {{ result.profession.name }} {{ result.params.from_skill }} → {{ result.params.to_skill }}
-            </span>
-          </h2>
+      <!-- 右栏：计算结果（吸顶） -->
+      <section class="panel plan-results" v-if="result">
+        <h2>
+          <span class="flex" style="gap: 8px; align-items: center">
+            <ItemIcon :icon="profIcon" :name="result.profession.name" :size="26" :item-id="null" />
+            计算结果 {{ result.params.from_skill }} → {{ result.params.to_skill }}
+          </span>
+        </h2>
 
-          <div class="summary-cards">
-            <div class="card"><div class="k">总制作次数</div><div class="v">{{ Math.round(result.totals.crafts) }}</div></div>
-            <div class="card"><div class="k">材料花费</div><div class="v"><Money :value="result.totals.mat_cost" :size="14" /></div></div>
-            <div class="card"><div class="k">成品收入</div><div class="v pos"><Money :value="result.totals.revenue" :size="14" /></div></div>
-            <div class="card"><div class="k">净成本</div><div class="v" :class="result.totals.net < 0 ? 'pos' : 'neg'">
-              <Money :value="result.totals.net" :size="14" />
-            </div></div>
+        <div class="summary-cards">
+          <div class="card"><div class="k">总制作次数</div><div class="v">{{ Math.round(result.totals.crafts) }}</div></div>
+          <div class="card">
+            <div class="k">花费</div>
+            <div class="v"><Money :value="result.totals.net" :size="14" neg-as-earn /></div>
           </div>
+        </div>
 
-          <div v-if="result.warnings.length" class="alert warn">
-            <div v-for="w in result.warnings.slice(0, 8)" :key="w">⚠ {{ w }}</div>
-          </div>
+        <div v-if="result.warnings.length" class="alert warn">
+          <div v-for="w in result.warnings.slice(0, 8)" :key="w">⚠ {{ w }}</div>
+        </div>
 
-          <div class="flex flex-wrap" style="margin: 12px 0 6px; gap: 8px; align-items: center">
-            <h3 style="margin: 0">路线步骤</h3>
-            <span class="muted" style="font-size: 12px">同一产品连续制作已合并；档位显示几率区间（100% → 20%）</span>
-          </div>
-          <div style="overflow-x: auto">
-            <table class="grid nowrap" v-if="result.steps.length">
-              <thead>
-                <tr>
-                  <th>技能区间</th><th>制作</th><th class="num">次数</th>
-                  <th>档位</th><th class="num">材料费</th><th class="num">收入</th><th class="num">净成本</th>
-                  <th class="num">图纸成本</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(s, i) in result.steps" :key="i">
-                  <td class="money">{{ Math.round(s.skill_from) }} → {{ Math.round(s.skill_to) }}</td>
-                  <td>
-                    <span class="flex" style="gap: 6px">
-                      <ItemIcon :icon="s.product_icon" :name="s.recipe_name" :size="24"
-                                :item-id="s.product_item_id" />
-                      <span>{{ s.recipe_name }}</span>
-                    </span>
-                    <span v-if="s.confirmed" class="tag confirmed">确认采用</span>
-                    <span v-if="s.disposition" class="tag disp">{{ dispLabel(s.disposition) }}</span>
-                  </td>
-                  <td class="num">{{ Math.round(s.crafts) }}</td>
-                  <td>
-                    <span class="tag" :class="bandClass(s.band)">
-                      {{ bandLabel(s.band) }} {{ probLabel(s) }}
-                    </span>
-                  </td>
-                  <td class="num"><Money :value="s.mat_cost" /></td>
-                  <td class="num"><Money :value="s.revenue" /></td>
-                  <td class="num" :class="s.net < 0 ? 'pos' : ''"><Money :value="s.net" /></td>
-                  <td class="num">
-                    <span v-if="s.design_cost" :title="s.design_name ?? ''"><Money :value="s.design_cost" /></span>
-                    <span v-else class="muted">—</span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <div v-else class="empty">当前价格与筛选条件下没有可用的路线，请检查价格导入或放宽屏蔽。</div>
-          </div>
+        <h3>路线步骤</h3>
+        <div style="overflow-x: auto">
+          <table class="grid nowrap" v-if="result.steps.length">
+            <thead>
+              <tr>
+                <th>技能区间</th><th>制作</th><th class="num">次数</th>
+                <th>档位</th><th class="num">花费</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(s, i) in result.steps" :key="i">
+                <td class="money">{{ Math.round(s.skill_from) }} → {{ Math.round(s.skill_to) }}</td>
+                <td>
+                  <span class="flex" style="gap: 6px">
+                    <ItemIcon :icon="s.product_icon" :name="s.recipe_name" :size="24"
+                              :item-id="s.product_item_id" />
+                    <span>{{ s.recipe_name }}</span>
+                  </span>
+                  <span v-if="s.confirmed" class="tag confirmed">确认采用</span>
+                  <span v-if="s.disposition" class="tag disp">{{ dispLabel(s.disposition) }}</span>
+                  <span v-if="s.design_cost" class="tag design" :title="'设计图：' + (s.design_name ?? '')">
+                    图纸 <Money :value="s.design_cost" :size="11" />
+                  </span>
+                </td>
+                <td class="num">{{ Math.round(s.crafts) }}</td>
+                <td>
+                  <span class="tag" :class="bandClass(s.band)">
+                    {{ bandLabel(s.band) }} {{ probLabel(s) }}
+                  </span>
+                </td>
+                <td class="num"><Money :value="s.net" neg-as-earn /></td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-else class="empty">当前价格与筛选条件下没有可用的路线，请检查价格导入或放宽屏蔽。</div>
+        </div>
 
-          <div class="flex flex-wrap" style="margin: 14px 0 6px; gap: 8px; align-items: center">
-            <h3 style="margin: 0">材料采购清单</h3>
-            <button class="btn small" @click="showShopping = true" v-if="result.materials.length"
-                    title="把采购清单导出为 AUC 关注清单，去游戏内按清单导价">导出 AUC 清单</button>
-          </div>
-          <div style="overflow-x: auto">
-            <table class="grid nowrap" v-if="result.materials.length">
-              <thead>
-                <tr><th>材料</th><th class="num">数量</th><th class="num">单价</th><th>来源</th><th class="num">小计</th></tr>
-              </thead>
-              <tbody>
-                <tr v-for="m in result.materials" :key="m.item_id">
-                  <td>
-                    <span class="flex" style="gap: 6px">
-                      <ItemIcon :icon="m.icon" :name="m.name" :size="22" :item-id="m.item_id" />
-                      <span>{{ m.name }}</span>
-                    </span>
-                    <span v-if="m.kind === 'design'" class="tag design">设计图</span>
-                  </td>
-                  <td class="num">{{ Math.round(m.qty) }}</td>
-                  <td class="num"><Money v-if="m.unit_price !== null" :value="m.unit_price" /><span v-else>—</span></td>
-                  <td>
-                    <span v-if="m.kind === 'design'" class="tag ah">拍卖行</span>
-                    <span v-else-if="m.price_source === 'npc'" class="tag npc">NPC 购买</span>
-                    <span v-else-if="m.price_source === 'ah'" class="tag ah">拍卖行</span>
-                    <span v-else class="muted">—</span>
-                  </td>
-                  <td class="num"><Money v-if="m.cost !== null" :value="m.cost" /><span v-else>—</span></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+        <details style="margin-top: 10px">
+          <summary class="muted">未参与计算的配方（{{ result.excluded.length }}）</summary>
+          <table class="grid" style="margin-top: 8px">
+            <thead><tr><th>配方</th><th>原因</th></tr></thead>
+            <tbody>
+              <tr v-for="e in result.excluded.slice(0, 100)" :key="e.recipe_id">
+                <td>{{ e.name }}</td><td class="muted">{{ e.reason }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </details>
 
-          <details style="margin-top: 10px">
-            <summary class="muted">未参与计算的配方（{{ result.excluded.length }}）</summary>
-            <table class="grid" style="margin-top: 8px">
-              <thead><tr><th>配方</th><th>原因</th></tr></thead>
-              <tbody>
-                <tr v-for="e in result.excluded.slice(0, 100)" :key="e.recipe_id">
-                  <td>{{ e.name }}</td><td class="muted">{{ e.reason }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </details>
+        <div class="flex" style="margin-top: 14px">
+          <button class="btn primary" @click="onSave">保存 / 分享这条路线</button>
+        </div>
+      </section>
 
-          <div class="flex" style="margin-top: 14px">
-            <button class="btn primary" @click="onSave">保存 / 分享这条路线</button>
-          </div>
-        </section>
+      <section class="panel" v-else>
+        <h2>计算结果</h2>
+        <div class="empty">设置好技能区间后点「计算路线」，这里显示分阶段路线与总花费。</div>
+      </section>
+    </div>
 
-        <section class="panel">
-          <h2>配方列表 · 点击操作</h2>
-          <div class="flex flex-wrap" style="margin-bottom: 10px">
-            <input v-model="recipeQuery" type="text" placeholder="搜索成品或材料名称…" style="width: 260px" />
-            <label class="field">
-              <input type="checkbox" v-model="onlyUsed" /> 只看路线用到的
-            </label>
-            <span class="muted">共 {{ filteredRecipes.length }} 个配方参与计算</span>
-          </div>
-          <div class="table-scroll">
-            <table class="grid nowrap">
-              <thead>
-                <tr>
-                  <th>成品</th>
-                  <th class="wrap">材料（单价/来源）</th>
-                  <th class="num">材料费</th>
-                  <th class="num">收入</th>
-                  <th class="num">净成本</th>
-                  <th>产物处置（点价格即选中）</th>
-                  <th>技能档</th>
-                  <th>来源</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="r in visibleRecipes" :key="r.id"
-                    :class="{ used: isUsed(r.id) }">
-                  <td>
-                    <span class="flex" style="gap: 6px">
-                      <ItemIcon :icon="r.product_icon" :name="r.product_name" :size="24"
-                                :item-id="r.product_item_id" />
-                      <span>{{ r.product_name }}</span>
-                    </span>
-                    <span v-if="r.product_qty > 1" class="muted"> ×{{ r.product_qty }}</span>
-                    <span v-if="r.is_new" class="tag new">新</span>
-                    <span v-if="r.product_kind === 'enchant'" class="tag trainer">附魔</span>
-                  </td>
-                  <td class="wrap">
-                    <div v-for="m in r.materials" :key="m.item_id" class="flex" style="gap: 4px">
-                      <ItemIcon :icon="m.icon" :name="m.name" :size="20" :item-id="m.item_id" />
-                      <span>{{ m.name }} ×{{ m.qty }}</span>
-                      <span v-if="m.unit_price !== null" class="money muted">
-                        <Money :value="m.unit_price" :size="11" />
-                        <span class="tag" :class="m.price_source === 'npc' ? 'npc' : 'ah'">
-                          {{ m.price_source === "npc" ? "NPC" : "拍卖" }}
-                        </span>
-                      </span>
-                      <span v-else class="neg">无价格</span>
-                      <button class="btn small danger" @click="onBlockItem(m.item_id)"
-                              :title="'屏蔽后，所有需要「' + m.name + '」的配方都不参与计算'">屏蔽</button>
-                    </div>
-                  </td>
-                  <td class="num"><Money v-if="r.mat_cost !== null" :value="r.mat_cost" /><span v-else>—</span></td>
-                  <td class="num"><Money v-if="r.revenue !== null" :value="r.revenue" /><span v-else>—</span></td>
-                  <td class="num" :class="r.net_cost !== null && r.net_cost < 0 ? 'pos' : ''">
-                    <Money v-if="r.net_cost !== null" :value="r.net_cost" /><span v-else>—</span>
-                  </td>
-                  <td>
-                    <div class="disp-btns">
-                      <button class="price-btn" :class="{ active: curDisp(r) === 'sell_npc' }"
-                              @click="onDispChange(r.id, 'sell_npc')"
-                              title="卖给 NPC（价 = 卖店价）">
-                        <span class="pb-k">卖店</span>
-                        <Money v-if="r.product_npc_price !== null" :value="r.product_npc_price" :size="12" />
-                        <span v-else class="muted">—</span>
-                      </button>
-                      <button class="price-btn" :class="{ active: curDisp(r) === 'sell_ah' }"
-                              @click="onDispChange(r.id, 'sell_ah')"
-                              title="卖给拍卖行（价 = 当前有效拍卖价）">
-                        <span class="pb-k">拍卖行</span>
-                        <Money v-if="r.product_ah_price !== null" :value="r.product_ah_price" :size="12" />
-                        <span v-else class="muted">无价</span>
-                      </button>
-                      <button class="price-btn self" :class="{ active: curDisp(r) === 'self_use' }"
-                              @click="onDispChange(r.id, 'self_use')" title="自用，不计收入">自用</button>
-                      <button v-if="session.recipeDispositionOf(r.id)" class="price-btn ghost"
-                              @click="onDispChange(r.id, '')" title="清除本配方覆盖，回到跟随全局">↺</button>
-                    </div>
-                  </td>
-                  <td class="money">
-                    {{ r.skill_orange }} / {{ r.skill_yellow }} / {{ r.skill_green }} / {{ r.skill_gray }}
-                  </td>
-                  <td>
-                    <span v-if="r.source_type === 'trainer'" class="tag trainer">训练师</span>
-                    <span v-else-if="r.source_type === 'design'" class="tag design">设计图</span>
-                    <span v-else class="tag trainer">{{ r.source_type }}</span>
-                  </td>
-                  <td style="white-space: nowrap">
-                    <button class="btn small" :class="{ active: session.state.blockedRecipeIds.includes(r.id) }"
-                            @click="session.toggleBlockRecipe(r.id)">
-                      {{ session.state.blockedRecipeIds.includes(r.id) ? "已屏蔽" : "屏蔽" }}
-                    </button>
-                    <button class="btn small" :class="{ active: session.state.confirmedRecipeIds.includes(r.id) }"
-                            @click="session.toggleConfirmRecipe(r.id)"
-                            title="确认采用：路线中优先做这个（默认 1 次，可在左侧改次数）">
-                      {{ session.state.confirmedRecipeIds.includes(r.id) ? "已确认" : "确认采用" }}
-                    </button>
-                    <span v-if="session.state.confirmedRecipeIds.includes(r.id)" class="flex" style="gap: 2px; display: inline-flex">
-                      ×<input type="number" min="1" max="999" style="width: 52px"
-                              :value="session.confirmedCountOf(r.id)"
-                              @change="onCountChange(r.id, $event)"
-                              title="制作次数（长 CD 配方按周期内可做次数填）" />
-                    </span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </div>
+    <!-- ============ 材料采购清单：二级抽屉，平时折叠，点击出现在最右 ============ -->
+    <div v-if="showShopping" class="drawer-mask" @click.self="showShopping = false">
+      <aside class="drawer">
+        <div class="flex" style="justify-content: space-between; align-items: center">
+          <h2 style="margin: 0">材料采购清单</h2>
+          <button class="btn small" @click="showShopping = false">✕ 关闭</button>
+        </div>
+        <p class="muted" style="font-size: 12px; line-height: 1.5">
+          本次路线要买的全部材料（按花费排序）。可导出为 AUC 关注清单，去游戏内按清单导价回填。
+        </p>
+        <button class="btn primary" @click="showShoppingExport = true" v-if="result && result.materials.length">
+          导出 AUC 清单
+        </button>
+        <div style="overflow-x: auto; margin-top: 10px">
+          <table class="grid nowrap" v-if="result && result.materials.length">
+            <thead>
+              <tr><th>材料</th><th class="num">数量</th><th class="num">单价</th><th class="num">小计</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="m in result!.materials" :key="m.item_id">
+                <td>
+                  <span class="flex" style="gap: 6px">
+                    <ItemIcon :icon="m.icon" :name="m.name" :size="22" :item-id="m.item_id" />
+                    <span>{{ m.name }}</span>
+                  </span>
+                  <span v-if="m.kind === 'design'" class="tag design">设计图</span>
+                </td>
+                <td class="num">{{ Math.round(m.qty) }}</td>
+                <td class="num"><Money v-if="m.unit_price !== null" :value="m.unit_price" /><span v-else>—</span></td>
+                <td class="num"><Money v-if="m.cost !== null" :value="m.cost" /><span v-else>—</span></td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-else class="empty">暂无材料数据，请先计算路线。</div>
+        </div>
+      </aside>
     </div>
 
     <div v-if="showSave" class="save-mask" @click.self="showSave = false">
@@ -383,10 +346,10 @@
                        @close="showImport = false" @imported="onImported" />
     <TemplateExportDialog v-if="showTemplate" :profession-key="session.state.professionKey"
                           @close="showTemplate = false" />
-    <ShoppingExportDialog v-if="showShopping && result"
+    <ShoppingExportDialog v-if="showShoppingExport && result"
                           :profession-name="result.profession.name"
                           :materials="result.materials"
-                          @close="showShopping = false" />
+                          @close="showShoppingExport = false" />
   </template>
 </template>
 
@@ -414,18 +377,12 @@ const onlyUsed = ref(false);
 const fromSkill = ref(session.state.fromSkill);
 const toSkill = ref(session.state.toSkill);
 const priceMode = ref(session.state.priceMode);
-const disposition = ref<Disposition>(session.state.disposition);
-const includeDesigns = ref(session.state.includeDesigns);
-const designCost = ref(session.state.designCost);
-const probMode = ref(session.state.probMode);
-const probOrange = ref(session.state.probOrange);
-const probYellow = ref(session.state.probYellow);
-const probGreen = ref(session.state.probGreen);
 
 const showSave = ref(false);
 const showImport = ref(false);
 const showTemplate = ref(false);
 const showShopping = ref(false);
+const showShoppingExport = ref(false);
 const saveTitle = ref("");
 const saveAuthor = ref("");
 const saveNotes = ref("");
@@ -464,7 +421,7 @@ async function loadRecipes() {
     session.state.professionKey,
     session.state.serverId,
     priceMode.value,
-    disposition.value,
+    "sell_ah",
     session.state.recipeDispositions
   );
 }
@@ -480,7 +437,7 @@ function bandClass(b: string) {
   return b === "orange" ? "band-o" : b === "yellow" ? "band-y" : "band-g";
 }
 
-/** 档位几率展示：合并段内几率衰减，显示 100%→20%；fixed 模式显示单一值。 */
+/** 档位几率展示：合并段内几率衰减，显示 100%→20%。 */
 function probLabel(s: CalcResult["steps"][number]) {
   const a = Math.round(s.prob * 100);
   if (s.prob_end != null && Math.abs(s.prob_end - s.prob) > 0.005) {
@@ -493,9 +450,9 @@ function dispLabel(d: string) {
   return d === "sell_ah" ? "→拍卖" : d === "sell_npc" ? "→卖店" : "→自用";
 }
 
-/** 当前生效处置：单配方覆盖优先，否则跟随全局。 */
+/** 当前生效处置：单配方覆盖优先，否则跟随全局（全局固定为卖拍卖行）。 */
 function curDisp(r: Recipe): Disposition {
-  return (session.recipeDispositionOf(r.id) as Disposition) || disposition.value;
+  return (session.recipeDispositionOf(r.id) as Disposition) || "sell_ah";
 }
 
 function onDispChange(id: number, d: Disposition | "") {
@@ -520,13 +477,6 @@ async function runCalc() {
   if (!validRange.value) return;
   session.setRange(fromSkill.value, toSkill.value);
   session.setPriceMode(priceMode.value);
-  session.setDisposition(disposition.value);
-  session.setIncludeDesigns(includeDesigns.value);
-  session.setDesignCost(designCost.value);
-  session.setProbMode(probMode.value);
-  session.setProb("orange", probOrange.value);
-  session.setProb("yellow", probYellow.value);
-  session.setProb("green", probGreen.value);
   await loadRecipes();
   loading.value = true;
   try {
@@ -586,6 +536,29 @@ async function onConfirmSave() {
   z-index: 2;
   background: var(--panel-bg, #f7f4ec);
 }
+.param-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+.param-row + .param-row { margin-top: 10px; }
+.rules-note {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.confirm-block {
+  margin-top: 10px;
+  border: 1px solid var(--border, #d8d3c4);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+.confirm-block summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
 .disp-btns {
   display: flex;
   flex-wrap: wrap;
@@ -610,9 +583,6 @@ async function onConfirmSave() {
   border-color: #b08b3e;
   background: rgba(176, 139, 62, 0.16);
   font-weight: 600;
-}
-.price-btn.self {
-  color: var(--muted);
 }
 .price-btn.ghost {
   padding: 3px 6px;

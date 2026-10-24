@@ -56,7 +56,7 @@ body {
   color: #ffd76a;
 }
 
-.main { flex: 1; padding: 18px 22px; max-width: 1280px; width: 100%; margin: 0 auto; }
+.main { flex: 1; padding: 18px 22px; width: 100%; }
 
 .panel {
   background: var(--panel);
@@ -170,15 +170,46 @@ table.grid td.wrap, table.grid th.wrap { white-space: normal; }
 .prof-card .name { font-weight: 600; margin-top: 6px; }
 .prof-card .count { font-size: 12px; color: var(--muted); }
 
-/* ---- 规划页两栏布局（左：参数 / 右：结果优先） ---- */
-.plan-layout { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 16px; align-items: start; }
-.plan-side { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow-y: auto; }
-.plan-side .panel { margin-bottom: 12px; }
-.plan-main { min-width: 0; }
-.plan-main .panel { margin-bottom: 16px; }
-@media (max-width: 1020px) {
-  .plan-layout { grid-template-columns: 1fr; }
-  .plan-side { position: static; max-height: none; }
+/* ---- 规划页布局：置顶参数（全宽）+ 左 3/4 配方列表 / 右 1/4 计算结果 ---- */
+.plan-body { display: grid; grid-template-columns: 3fr 1fr; gap: 16px; align-items: start; }
+.plan-body > .panel { min-width: 0; }
+/* 右栏结果吸顶，长配方列表滚动时保持可见 */
+.plan-results {
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+}
+@media (max-width: 1100px) {
+  .plan-body { grid-template-columns: 1fr; }
+  .plan-results { position: static; max-height: none; }
+}
+
+/* ---- 材料采购清单抽屉（二级菜单：平时折叠，点击出现在最右） ---- */
+.drawer-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(30, 25, 15, 0.35);
+  z-index: 60;
+}
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 480px;
+  max-width: 94vw;
+  background: var(--panel);
+  border-left: 2px solid var(--gold);
+  box-shadow: -6px 0 24px rgba(0, 0, 0, 0.25);
+  padding: 16px;
+  overflow-y: auto;
+  z-index: 61;
+  animation: drawer-slide-in 0.18s ease-out;
+}
+@keyframes drawer-slide-in {
+  from { transform: translateX(48px); opacity: 0.4; }
+  to { transform: none; opacity: 1; }
 }
 
 .alert { border-radius: 6px; padding: 10px 12px; font-size: 13px; margin: 8px 0; }

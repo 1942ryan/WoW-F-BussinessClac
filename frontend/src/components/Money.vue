@@ -11,8 +11,10 @@ const props = withDefaults(
     /** 是否显示 0 值单位（默认省略，与 WoW 金钱框架一致） */
     showZero?: boolean;
     size?: number;
+    /** 负值渲染为红色「赚」前缀（而非负号）——用于成本列：负数=这次是赚钱的 */
+    negAsEarn?: boolean;
   }>(),
-  { value: null, showZero: false, size: 13 }
+  { value: null, showZero: false, size: 13, negAsEarn: false }
 );
 
 const CDN = "https://wowforever.wclbox.com/tubiao";
@@ -40,7 +42,8 @@ const parts = computed(() => {
 
 <template>
   <span v-if="parts" class="money-ic" :style="{ fontSize: size + 2 + 'px' }">
-    <span v-if="parts.neg" class="neg-sign">−</span>
+    <span v-if="parts.neg && !negAsEarn" class="neg-sign">−</span>
+    <span v-else-if="parts.neg && negAsEarn" class="earn-sign">赚</span>
     <span v-for="(p, i) in parts.out" :key="i" class="money-unit">
       <img class="coin" :src="p.icon" :width="size" :height="size" alt="" loading="lazy" decoding="async" />
       <span class="money-num">{{ p.n }}</span>
@@ -74,5 +77,10 @@ const parts = computed(() => {
 }
 .neg-sign {
   margin-right: 1px;
+}
+.earn-sign {
+  margin-right: 2px;
+  color: var(--red, #c62828);
+  font-weight: 700;
 }
 </style>
