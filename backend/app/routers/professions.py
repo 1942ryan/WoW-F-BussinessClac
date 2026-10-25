@@ -248,6 +248,12 @@ def list_recipes(
                 net_cost=(mat_cost - revenue) if (price_ok and revenue is not None) else None,
                 product_npc_price=product_npc_price,
                 product_ah_price=product_ah_price,
+                # 卖拍卖行但查不到 AH 价 → 收入按卖店价估算（冷门信号，由用户决定是否屏蔽）
+                revenue_fallback=(
+                    disp == "sell_ah"
+                    and product_ah_price is None
+                    and (product_npc_price or 0) > 0
+                ),
             )
         )
     return out

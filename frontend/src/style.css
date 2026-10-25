@@ -143,6 +143,8 @@ table.grid td.wrap, table.grid th.wrap { white-space: normal; }
 .tag.blocked { background: #e5e5e5; color: #777; text-decoration: line-through; }
 .tag.limited { background: #fdeef0; color: #a03048; border: 1px solid #f0bcc4; cursor: help; }
 .tag.disp { background: #eef0f4; color: #4a5568; }
+/* AH 无价：冷门信号，需要用户自己判断是否屏蔽 */
+.tag.noah { background: #fde8ea; color: #a03048; border: 1px solid #f0bcc4; font-weight: 600; cursor: help; }
 
 .muted { color: var(--muted); }
 .money { font-variant-numeric: tabular-nums; white-space: nowrap; }

@@ -97,6 +97,8 @@ class RecipeOut(BaseModel):
     # 产物双价格（单次产出，铜）：卖店价 / 拍卖行有效价（无流水为 None）
     product_npc_price: int | None = None
     product_ah_price: int | None = None
+    # 成品在拍卖行查不到价格 → 收入已回退按 NPC 卖店价估算（多为冷门配方，提示用户自行判断）
+    revenue_fallback: bool = False
 
 
 # ---------- 价格 ----------
@@ -195,6 +197,7 @@ class CalcStepOut(BaseModel):
     source_type: str
     design_cost: int = 0  # 本段一次性设计图成本（铜，AH 购买时）
     design_name: str | None = None  # 设计图物品名
+    revenue_fallback: bool = False  # 本段成品拍卖行无价 → 收入按 NPC 卖店价估算
 
 
 class MaterialTotalOut(BaseModel):

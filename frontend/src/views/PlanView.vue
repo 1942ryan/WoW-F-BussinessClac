@@ -88,6 +88,8 @@
                   <span v-if="r.product_qty > 1" class="muted"> ×{{ r.product_qty }}</span>
                   <span v-if="r.is_new" class="tag new">新</span>
                   <span v-if="r.product_kind === 'enchant'" class="tag trainer">附魔</span>
+                  <span v-if="r.revenue_fallback" class="tag noah"
+                        title="拍卖行查不到这个成品的价格，收入已按 NPC 卖店价估算（通常是冷门配方）。不想做就点 ⊘ 屏蔽它">AH无价</span>
                 </td>
                 <td class="wrap">
                   <div v-for="m in r.materials" :key="m.item_id" class="flex" style="gap: 4px">
@@ -220,6 +222,8 @@
                   </span>
                   <span v-if="s.confirmed" class="tag confirmed">确认采用</span>
                   <span v-if="s.disposition" class="tag disp">{{ dispLabel(s.disposition) }}</span>
+                  <span v-if="s.revenue_fallback" class="tag noah"
+                        title="拍卖行查不到这个成品的价格，本步收入按 NPC 卖店价估算。冷门配方建议在左侧 ⊘ 屏蔽后重算">AH无价</span>
                   <span v-if="s.design_cost" class="tag design" :title="'设计图：' + (s.design_name ?? '')">
                     图纸 <Money :value="s.design_cost" :size="11" />
                   </span>

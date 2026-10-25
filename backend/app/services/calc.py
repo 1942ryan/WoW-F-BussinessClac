@@ -579,6 +579,8 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
                 "source_type": best.source_type,
                 "design_cost": step_design_cost,
                 "design_name": step_design_name,
+                # 成品 AH 无价 → 本步收入按卖店价估算（冷门信号，UI 提示用户可自行屏蔽）
+                "revenue_fallback": best.revenue_fallback,
             }
         )
         # 拍卖行无价时已回退按 NPC 卖店价估算收入（见 _views 构造处）；物品数量大、

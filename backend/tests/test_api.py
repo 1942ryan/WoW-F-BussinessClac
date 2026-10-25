@@ -229,3 +229,44 @@ def test_icons_in_recipes_and_calc(client, db_session):
     assert calc["steps"][0]["product_icon"].endswith("inv_misc_flute_01.jpg")
     mat = next(m for m in calc["materials"] if m["item_id"] == 2840)
     assert mat["icon"].endswith("inv_ingot_02.jpg")
+
+
+def test_revenue_fallback_flag(client, db_session):
+    """成品拍卖行无价 → revenue_fallback=True（冷门信号），有 AH 价则 False。
+
+    该标记只做展示提示，不改变计算口径：无价时收入仍按 NPC 卖店价估算，
+    是否屏蔽交由用户判断（前端配方行显示「AH无价」标签 + ⊘ 屏蔽按钮）。
+    """
+    from tests.conftest import add_price, make_item, make_profession, make_recipe, make_server
+
+    server = make_server(db_session, "缺价服")
+    prof = make_profession(db_session, "rk", "标记专业")
+    mat = make_item(db_session, 9701, "标记材料")
+    hot = make_item(db_session, 9702, "热门成品", vendor_price=100)
+    cold = make_item(db_session, 9703, "冷门成品", vendor_price=500)
+    make_recipe(db_session, prof, hot, "热门成品", [(mat, 1)], 1, 5, 8, 12)
+    make_recipe(db_session, prof, cold, "冷门成品", [(mat, 1)], 1, 5, 8, 12)
+    # 只给「热门成品」导拍卖行价，「冷门成品」不导 → 后者应被标记
+    add_price(db_session, server, mat, 10)
+    add_price(db_session, server, hot, 1000)
+    db_session.commit()
+
+    recipes = client.get(f"/api/v1/professions/rk/recipes?server_id={server.id}").json()
+    flags = {r["product_name"]: r["revenue_fallback"] for r in recipes}
+    assert flags["热门成品"] is False
+    assert flags["冷门成品"] is True
+
+    # 路线步骤同样带标记，方便在计算结果里发现混进来的冷门配方
+    calc = client.post(
+        "/api/v1/routes/calc",
+        json={
+            "server_id": server.id,
+            "profession_key": "rk",
+            "from_skill": 1,
+            "to_skill": 12,
+            "price_mode": "latest",
+        },
+    ).json()
+    assert calc["steps"], "应至少产生一个步骤"
+    for s in calc["steps"]:
+        assert s["revenue_fallback"] == (s["recipe_name"] == "冷门成品")

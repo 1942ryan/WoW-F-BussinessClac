@@ -37,7 +37,10 @@
   导致整页下沉）；行内控件要定宽（操作列固定 164px），否则确认态切换会撑列宽
 - 黄金分割：`.plan-body` = `minmax(0,1.618fr) minmax(0,1fr)`（实测 1001:619）
 - 「材料采购清单」入口在**计算结果栏**（不在参数区）
-- AH 缺价 → 收入静默回退按 NPC 卖店价估算（不提示）；若改成「无价=收入 0」需与用户确认
+- AH 缺价 → 收入静默回退按 NPC 卖店价估算（不提示）；用户已决定**不改口径**（无价=冷门配方，由人判断）。
+  配方列表与路线步骤用红色 **「AH无价」** 标签（`revenue_fallback`）暴露该状态，用户看到后自行 ⊘ 屏蔽
+- 新增输出字段要**两处都加**：`calc.py` 的 steps dict + `schemas.py` 的 `CalcStepOut`
+  （Pydantic response_model 会静默过滤未声明字段，实测踩过）
 
 ## 第二轮迭代（2026-10-24 深夜，commit 8f60511）
 - 阵营隔离：`Server.faction` + `PriceRecord.faction`（alliance/horde/both）；both 旧数据作公共底价对阵营服可见；

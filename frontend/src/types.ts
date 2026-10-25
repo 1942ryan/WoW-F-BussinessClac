@@ -69,6 +69,8 @@ export interface Recipe {
   /** 产物双价格（单次产出，铜）：卖店价 / 拍卖行有效价（无流水为 null） */
   product_npc_price: number | null;
   product_ah_price: number | null;
+  /** 成品拍卖行查不到价格 → 收入按卖店价估算（冷门信号，可手动屏蔽） */
+  revenue_fallback: boolean;
 }
 
 export interface ImportSummary {
@@ -133,6 +135,8 @@ export interface CalcStep {
   source_type: string;
   design_cost: number;
   design_name: string | null;
+  /** 成品拍卖行无价 → 本步收入按卖店价估算 */
+  revenue_fallback?: boolean;
 }
 
 export interface MaterialTotal {
