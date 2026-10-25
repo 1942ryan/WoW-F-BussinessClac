@@ -173,7 +173,7 @@ class RecipeView:
     net: int | None = None  # 每次净成本
     cost_per_point: float | None = None
     missing: list[str] = field(default_factory=list)  # 缺价格的材料名
-    revenue_fallback: bool = False  # 拍卖行无价、按卖店价估算
+    revenue_fallback: bool = False  # 拍卖行无价、按卖店价估算（仅记录，不对外提示）
     disposition: str = "sell_ah"  # 本配方产物处置（全局或单配方覆盖）
     # 设计图配方：图纸一次性成本（学会即消耗，不随制作次数增加）
     design_cost: int = 0
@@ -581,10 +581,8 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
                 "design_name": step_design_name,
             }
         )
-        if best.revenue_fallback:
-            warnings.append(
-                f"「{best.product_name}」拍卖行暂无价格，收入按 NPC 卖店价估算"
-            )
+        # 拍卖行无价时已回退按 NPC 卖店价估算收入（见 _views 构造处）；物品数量大、
+        # 缺价是常态，不再逐条警告（用户要求），静默处理。
         for m in best.mats:
             agg = mat_totals.setdefault(
                 m.item_id,

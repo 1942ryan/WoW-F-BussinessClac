@@ -3,36 +3,47 @@
     <section class="panel">
       <h2>1 · 选择服务器</h2>
       <p class="muted" style="margin: 0 0 10px">
-        价格按服务器 + 阵营隔离：同一服务器同一阵营的玩家共享彼此导入的拍卖行价格
-        （联盟与部落拍卖行分开，选错价格会不准）。切换服务器请慎重。
+        服务器为 <b>PVP / PVE / RP</b> 三个。联盟与部落的拍卖行<b>不互通</b>，
+        价格按「服务器 + 阵营」隔离存储，选错阵营价格会不准。
       </p>
-      <div class="flex flex-wrap">
-        <select v-model="selectedId" @change="onPickServer" style="min-width: 260px">
-          <option :value="0" disabled>— 选择已有服务器 —</option>
-          <option v-for="s in servers" :key="s.id" :value="s.id">
-            {{ s.name }}（{{ s.batch_count }} 次导入 / {{ s.route_count }} 条路线）
-          </option>
-        </select>
-        <span v-if="currentFaction !== 'both'" class="flex" style="gap: 6px; align-items: center">
-          <FactionIcon :faction="currentFaction" :size="20" />
-          <span>{{ currentFaction === "alliance" ? "联盟" : "部落" }}服务器，仅见本阵营价格</span>
-        </span>
-        <div class="flex">
-          <input v-model="newName" type="text" placeholder="新服务器名称，如：无限·安苏" style="width: 220px"
-            @keyup.enter="onCreate" />
-          <button class="btn" @click="onCreate" :disabled="!newName.trim()">＋ 新建</button>
-        </div>
+
+      <div class="pick-row">
+        <span class="pick-label">服务器</span>
+        <button v-for="s in SERVER_PRESETS" :key="s" class="btn pick"
+                :class="{ active: pickedServer === s }" @click="pickedServer = s">
+          {{ s }}
+        </button>
       </div>
-      <div class="flex flex-wrap" style="margin-top: 10px; gap: 14px; align-items: center">
-        <span class="muted">新建服务器阵营：</span>
-        <label v-for="f in factionOptions" :key="f.value" class="faction-opt"
-               :class="{ active: newFaction === f.value }">
-          <input type="radio" :value="f.value" v-model="newFaction" />
-          <FactionIcon :faction="f.value" :size="22" />
+
+      <div class="pick-row">
+        <span class="pick-label">阵营</span>
+        <button v-for="f in FACTIONS" :key="f.value" class="btn pick faction"
+                :class="{ active: pickedFaction === f.value }" @click="pickedFaction = f.value">
+          <FactionIcon :faction="f.value" :size="20" />
           <span>{{ f.label }}</span>
-        </label>
-        <span class="muted" style="font-size: 12px">不确定或单阵营服可选「双阵营共用」</span>
+        </button>
       </div>
+
+      <div class="pick-row" style="margin-top: 12px">
+        <span class="pick-label"></span>
+        <button class="btn primary" :disabled="!pickedServer || busy" @click="onEnter">
+          {{ enterLabel }}
+        </button>
+        <RouterLink v-if="session.state.serverId" class="btn primary" to="/plan">下一步：选择专业 →</RouterLink>
+        <span v-if="status" class="muted status">{{ status }}</span>
+      </div>
+
+      <!-- 旧服务器（非 PVP/PVE/RP 组合名，历史价格仍可用） -->
+      <details v-if="legacyServers.length" class="legacy">
+        <summary class="muted">旧服务器 / 历史数据（{{ legacyServers.length }}）</summary>
+        <div class="flex flex-wrap" style="margin-top: 8px">
+          <button v-for="s in legacyServers" :key="s.id" class="btn small" @click="onPickLegacy(s)"
+                  :class="{ active: session.state.serverId === s.id }">
+            {{ s.name }}（{{ s.batch_count }} 次导入 / {{ s.route_count }} 条路线）
+            <FactionIcon v-if="s.faction && s.faction !== 'both'" :faction="s.faction" :size="14" />
+          </button>
+        </div>
+      </details>
     </section>
 
     <section class="panel">
@@ -73,45 +84,84 @@ const session = useSessionStore();
 const router = useRouter();
 const servers = ref<Server[]>([]);
 const professions = ref<Profession[]>([]);
-const selectedId = ref(0);
-const newName = ref("");
-const newFaction = ref<Faction>("both");
 
-const factionOptions: { value: Faction; label: string }[] = [
+/** 服务器名单固定为 PVP / PVE / RP 三个 */
+const SERVER_PRESETS = ["PVP", "PVE", "RP"];
+/** 阵营只有联盟与部落（中立拍卖行不参与价格隔离，已下线） */
+const FACTIONS: { value: Faction; label: string }[] = [
   { value: "alliance", label: "联盟" },
   { value: "horde", label: "部落" },
-  { value: "both", label: "双阵营共用" },
 ];
 
-const currentFaction = computed<Faction>(() => {
-  const s = servers.value.find((x) => x.id === selectedId.value);
-  return (s?.faction as Faction) ?? "both";
+const pickedServer = ref("");
+const pickedFaction = ref<Faction>("alliance");
+const busy = ref(false);
+const status = ref("");
+
+/** 服务器 + 阵营 = 唯一服务器名（后端 name 唯一，天然支持六个组合） */
+const comboName = computed(() => {
+  if (!pickedServer.value) return "";
+  const suffix = pickedFaction.value === "alliance" ? "联盟" : "部落";
+  return `${pickedServer.value}·${suffix}`;
 });
+
+const existing = computed(
+  () => servers.value.find((s) => s.name === comboName.value) ?? null
+);
+
+const enterLabel = computed(() => {
+  if (!pickedServer.value) return "先选服务器和阵营";
+  return existing.value ? `使用 ${comboName.value}` : `创建 ${comboName.value}`;
+});
+
+/** 名字不属于预设组合的服务器（保留历史价格数据） */
+const legacyServers = computed(() =>
+  servers.value.filter((s) => !SERVER_PRESETS.some((p) => s.name.startsWith(`${p}·`)))
+);
 
 onMounted(async () => {
   servers.value = await api.listServers();
   professions.value = await api.listProfessions();
-  selectedId.value = session.state.serverId ?? 0;
+  // 从当前会话反解析「服务器·阵营」
+  const cur = servers.value.find((s) => s.id === session.state.serverId);
+  if (cur) {
+    const [p, f] = cur.name.split("·");
+    if (SERVER_PRESETS.includes(p) && (f === "联盟" || f === "部落")) {
+      pickedServer.value = p;
+      pickedFaction.value = f === "联盟" ? "alliance" : "horde";
+    }
+  }
 });
 
-function onPickServer() {
-  const s = servers.value.find((x) => x.id === selectedId.value);
-  if (s) session.setServer(s.id, s.name, (s.faction as Faction) ?? "both");
+async function onEnter() {
+  if (!pickedServer.value) return;
+  busy.value = true;
+  try {
+    let target = existing.value;
+    if (!target) {
+      const created = await api.createServer(comboName.value, pickedFaction.value);
+      servers.value = await api.listServers();
+      target = servers.value.find((s) => s.id === created.id) ?? null;
+      status.value = created.existed ? `已切换到 ${comboName.value}` : `已创建 ${comboName.value}`;
+    } else {
+      status.value = `已切换到 ${comboName.value}`;
+    }
+    if (target) {
+      session.setServer(target.id, target.name, (target.faction as Faction) ?? pickedFaction.value);
+    }
+  } finally {
+    busy.value = false;
+  }
 }
 
-async function onCreate() {
-  const name = newName.value.trim();
-  if (!name) return;
-  const s = await api.createServer(name, newFaction.value);
-  servers.value = await api.listServers();
-  selectedId.value = s.id;
-  session.setServer(s.id, s.name, (s.faction as Faction) ?? newFaction.value);
-  newName.value = "";
+function onPickLegacy(s: Server) {
+  session.setServer(s.id, s.name, (s.faction as Faction) ?? "both");
+  status.value = `已切到旧服务器「${s.name}」，历史价格仍在`;
 }
 
 function onPickProf(p: Profession) {
   if (!session.state.serverId) {
-    alert("请先选择或新建服务器");
+    alert("请先选择服务器");
     return;
   }
   session.setProfession(p.key);
@@ -120,20 +170,44 @@ function onPickProf(p: Profession) {
 </script>
 
 <style scoped>
-.faction-opt {
+.pick-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.pick-label {
+  width: 52px;
+  flex: none;
+  color: var(--muted);
+  font-size: 13px;
+}
+.pick {
+  min-width: 92px;
+  padding: 6px 14px;
+}
+.pick.faction {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
-  border: 1px solid var(--border, #d8d3c4);
-  border-radius: 6px;
-  cursor: pointer;
 }
-.faction-opt.active {
+.pick.active {
+  background: var(--gold-soft, rgba(176, 139, 62, 0.16));
   border-color: #b08b3e;
-  background: rgba(176, 139, 62, 0.12);
+  color: #7a5c00;
+  font-weight: 600;
 }
-.faction-opt input {
-  accent-color: #b08b3e;
+.status {
+  font-size: 12px;
+}
+.legacy {
+  margin-top: 12px;
+  border-top: 1px solid var(--border, #d8d3c4);
+  padding-top: 10px;
+}
+.legacy summary {
+  cursor: pointer;
+  font-size: 13px;
 }
 </style>

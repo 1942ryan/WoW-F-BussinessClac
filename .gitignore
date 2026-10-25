@@ -26,3 +26,6 @@ _research/
 .DS_Store
 .idea/
 .vscode/
+
+# 本机一键启动脚本（含本机绝对路径）
+start.bat

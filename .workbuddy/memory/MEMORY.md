@@ -2,6 +2,15 @@
 
 - 仓库：https://github.com/1942ryan/WoW-F-BussinessClac.git（main）
 - 本地：后端 venv `C:/Users/1942r/.workbuddy/binaries/python/envs/wowfc/Scripts/python.exe`，跑 `uvicorn app.main:app --port 8787`；前端 `frontend/`（node 在 `C:/Users/1942r/.workbuddy/binaries/node/versions/22.22.2-6/`），构建产物复制到 `backend/static/`
+- **从 GitHub 冷启动的两个隐前提**（`*.db` 与 `backend/static/` 都被 .gitignore，仓库里没有）：
+  ① 必须 `cd backend && python -m app.seed` 灌库（依赖 `backend/data/*.json`，仓库里有）；
+  ② 必须 `npm ci && npm run build` 后把 `frontend/dist` 拷成 `backend/static`，否则根路径只返回 JSON 不是网页。
+  且 `main.py` 在**模块加载时**判断 `STATIC_DIR.is_dir()` → 要先放好 static 再启动 uvicorn，后放需重启。
+  SQLite 是相对路径 `sqlite:///./wowfc.db` → 必须在 `backend/` 目录启动，否则别处新建空库（症状：页面能开但没数据）
+- **本地一键启动脚本**：项目根 `start.bat`（含本机 venv 绝对路径，仅本机用、不入库）。逻辑：校验 python →
+  缺 `backend/static/index.html` 时自动从 `frontend/dist` 补 → 查 8787 占用（占用则直接开浏览器）→ 起 uvicorn 并开页面。
+  ⚠️ 会话/后台任务回收会带走 uvicorn 进程，用户报「访问不到」先查 `Get-NetTCPConnection -LocalPort 8787`
+  （无监听 = 进程没了，不是代码问题），再跑 start.bat
 - 涨点几率：默认「客户端公式」=(灰档-当前)/(灰档-黄档)，橙档 100%（WowWiki 存档 + SkillUpProbability 插件实证）；界面可切 fixed 固定档位（默认 100/50/25，env WOWFC_PROB_* 或请求参数）
 - NPC 限量材料：`Item.type == "Herb"` 即判定限量（地根草/跌打草/皇血草等），只走拍卖行价；手工追加改 `calc.py` 的 `MANUAL_LIMITED_ITEM_IDS`
 - 配方产物处置：只有 卖店/拍卖行 两种（自用已下线）；全局固定卖拍卖行 + `recipe_dispositions` 逐配方覆盖
@@ -21,6 +30,14 @@
 - 材料列不显示来源标签（默认就是拍卖行）；表头「材料（单价）」
 - 计算结果步骤表**无档位列**（技能区间/制作/次数/花费），保证花费列始终可见；RoutesView 路线详情同步删除
 - warnings 输出前 `dict.fromkeys` 去重（同一配方多步骤会重复追加），设计图缺价不再提示（按 0 静默计入）
+- **服务器名单固定 PVP / PVE / RP，阵营只有联盟/部落（「双阵营共用」已下线）**；服务器名存成组合名
+  `PVP·联盟`，借 `Server.name` 的 unique 天然满足 3×2=6 个组合，**不需要改表结构**；
+  非组合名的旧服务器收进首页「旧服务器 / 历史数据」折叠区，切换后历史价格照常可用
+- **布局抖动防治**：参数区不要放「随操作出现/消失」的整块内容（曾因确认汇总面板凭空出现 +45px
+  导致整页下沉）；行内控件要定宽（操作列固定 164px），否则确认态切换会撑列宽
+- 黄金分割：`.plan-body` = `minmax(0,1.618fr) minmax(0,1fr)`（实测 1001:619）
+- 「材料采购清单」入口在**计算结果栏**（不在参数区）
+- AH 缺价 → 收入静默回退按 NPC 卖店价估算（不提示）；若改成「无价=收入 0」需与用户确认
 
 ## 第二轮迭代（2026-10-24 深夜，commit 8f60511）
 - 阵营隔离：`Server.faction` + `PriceRecord.faction`（alliance/horde/both）；both 旧数据作公共底价对阵营服可见；

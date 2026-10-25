@@ -35,10 +35,6 @@
         <button class="btn" @click="showImport = true" title="导入 AUC 价格后自动重算">价格导入</button>
         <button class="btn" @click="showTemplate = true"
                 title="生成 AUC 关注清单，去游戏内按清单导出价格">导出模板</button>
-        <button class="btn" @click="showShopping = true" :disabled="!result || !result.materials.length"
-                title="本次路线的材料采购清单（默认折叠，点击在最右展开）">
-          材料采购清单<template v-if="result">（{{ result.materials.length }}）</template>
-        </button>
       </div>
 
       <div class="param-row">
@@ -52,45 +48,13 @@
         计算规则已固定：涨点按 WoW 客户端公式（橙档 100%，黄/绿档 =(灰档−当前)/(灰档−黄档) 递减）；
         成品默认卖拍卖行，可在下方配方列表逐条改「卖店」；设计图配方自动计入，图纸按拍卖行价一次性计入成本。
       </p>
-
-      <!-- 确认采用列表（可填次数）：次数是上限，不是强制制作量 -->
-      <details v-if="confirmedList.length" class="confirm-block">
-        <summary>确认采用 · 制作次数（{{ confirmedList.length }}）</summary>
-        <p class="muted" style="margin: 6px 0 8px; font-size: 12px; line-height: 1.5">
-          确认采用 = 当前技能下<b>优先做</b>这个配方 + <b>最多做 N 次</b>（次数是上限，不是目标）。
-          长 CD 配方（如每日 1 次的转化）按一个查询周期内可做次数填，用完后自动退出路线；
-          不填默认 1 次。若配方当前技能段用不到或本来就会被选中，确认与填次数都不会改变路线。
-        </p>
-        <table class="grid nowrap">
-          <thead><tr><th>配方</th><th class="num" style="width: 76px">次数</th><th></th></tr></thead>
-          <tbody>
-            <tr v-for="r in confirmedList" :key="r.id">
-              <td>
-                <span class="flex" style="gap: 6px">
-                  <ItemIcon :icon="r.product_icon" :name="r.product_name" :size="22"
-                            :item-id="r.product_item_id" />
-                  <span>{{ r.product_name }}</span>
-                </span>
-              </td>
-              <td class="num">
-                <input type="number" min="1" max="999" style="width: 60px"
-                       :value="session.confirmedCountOf(r.id)"
-                       @change="onCountChange(r.id, $event)" />
-              </td>
-              <td>
-                <button class="btn small danger" @click="onConfirmRecipe(r.id)">移除</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </details>
     </section>
 
     <!-- ============ 主体：左 3/4 配方列表，右 1/4 计算结果 ============ -->
     <div class="plan-body">
       <!-- 左栏：配方列表 -->
       <section class="panel plan-recipes">
-        <h2>配方列表 · 点击操作</h2>
+        <h2>配方列表</h2>
         <div class="flex flex-wrap" style="margin-bottom: 10px">
           <input v-model="recipeQuery" type="text" placeholder="搜索成品或材料名称…" style="width: 260px" />
           <label class="field">
@@ -175,7 +139,7 @@
                   <Money v-if="r.net_cost !== null" :value="r.net_cost" neg-as-earn />
                   <span v-else>—</span>
                 </td>
-                <td style="white-space: nowrap">
+                <td class="op-col">
                   <button class="btn small icon-btn"
                           :class="{ active: session.state.blockedRecipeIds.includes(r.id) }"
                           @click="onBlockRecipe(r.id)"
@@ -193,12 +157,11 @@
                     <span class="ico star">{{ session.state.confirmedRecipeIds.includes(r.id) ? "★" : "☆" }}</span>
                     <span v-if="session.state.confirmedRecipeIds.includes(r.id)" class="max-tag">最大</span>
                   </button>
-                  <span v-if="session.state.confirmedRecipeIds.includes(r.id)"
-                        class="flex" style="gap: 2px; display: inline-flex">
-                    ×<input type="number" min="1" max="999" style="width: 52px"
-                            :value="session.confirmedCountOf(r.id)"
-                            @change="onCountChange(r.id, $event)"
-                            title="制作次数上限（长 CD 配方按周期内可做次数填）" />
+                  <span v-if="session.state.confirmedRecipeIds.includes(r.id)" class="cnt-wrap">
+                    <input type="number" min="1" max="999" class="cnt-input"
+                           :value="session.confirmedCountOf(r.id)"
+                           @change="onCountChange(r.id, $event)"
+                           title="制作次数上限（长 CD 配方按周期内可做次数填）" />
                   </span>
                 </td>
               </tr>
@@ -222,6 +185,15 @@
             <div class="k">花费</div>
             <div class="v"><Money :value="result.totals.net" :size="14" neg-as-earn /></div>
           </div>
+        </div>
+
+        <!-- 材料采购清单入口（点开为右侧抽屉） -->
+        <div class="flex flex-wrap" style="margin: 10px 0; gap: 8px">
+          <button class="btn primary" @click="showShopping = true"
+                  :disabled="!result.materials.length"
+                  title="本次路线的材料采购清单">
+            材料采购清单<template v-if="result.materials.length">（{{ result.materials.length }}）</template>
+          </button>
         </div>
 
         <div v-if="result.warnings.length" class="alert warn">
@@ -410,9 +382,6 @@ const filteredRecipes = computed(() => {
   );
 });
 const visibleRecipes = computed(() => filteredRecipes.value.slice(0, 400));
-const confirmedList = computed(() =>
-  recipes.value.filter((r) => session.state.confirmedRecipeIds.includes(r.id))
-);
 
 onMounted(async () => {
   professions.value = await api.listProfessions();
@@ -562,17 +531,6 @@ async function onConfirmSave() {
   font-size: 12px;
   line-height: 1.6;
 }
-.confirm-block {
-  margin-top: 10px;
-  border: 1px solid var(--border, #d8d3c4);
-  border-radius: 6px;
-  padding: 8px 12px;
-}
-.confirm-block summary {
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 13px;
-}
 .disp-btns {
   display: flex;
   flex-wrap: wrap;
@@ -594,6 +552,33 @@ async function onConfirmSave() {
 .sb-g { color: #4d7d36; }
 .sb-r { color: #8a8a8a; }
 /* ---- 图标操作按钮（星标=确认采用/最大，禁令=屏蔽） ---- */
+/* ---- 操作列：固定宽度 + 控件等高，避免「确认」出现/取消时整表重排 ---- */
+/* 宽度按「⊘ + ★最大 + ×999」撑满后的实测值留余量，避免确认状态切换时列宽抖动 */
+.op-col {
+  white-space: nowrap;
+  width: 164px;
+  min-width: 164px;
+  max-width: 164px;
+  vertical-align: middle;
+}
+.cnt-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 2px;
+}
+.cnt-wrap::before {
+  content: "×";
+  color: var(--muted);
+  font-size: 12px;
+}
+.cnt-input {
+  width: 46px;
+  height: 22px;
+  padding: 0 4px;
+  font-size: 12px;
+  line-height: 20px;
+}
 .icon-btn {
   display: inline-flex;
   align-items: center;
