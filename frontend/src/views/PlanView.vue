@@ -133,9 +133,11 @@
                   <span class="sb sb-r">{{ r.skill_gray }}</span>
                 </td>
                 <td>
-                  <span v-if="r.source_type === 'trainer'" class="tag trainer">训练师</span>
-                  <span v-else-if="r.source_type === 'design'" class="tag design">设计图</span>
-                  <span v-else class="tag trainer">{{ r.source_type }}</span>
+                  <span class="src-cell" @mouseenter="onSrcEnter($event, r)" @mouseleave="onSrcLeave">
+                    <span v-if="r.source_type === 'trainer'" class="tag trainer">训练师</span>
+                    <span v-else-if="r.source_type === 'design'" class="tag design">设计图</span>
+                    <span v-else class="tag trainer">{{ r.source_type }}</span>
+                  </span>
                 </td>
                 <td class="num">
                   <Money v-if="r.net_cost !== null" :value="r.net_cost" neg-as-earn />
@@ -332,6 +334,7 @@
                           :profession-name="result.profession.name"
                           :materials="result.materials"
                           @close="showShoppingExport = false" />
+    <SourceTip :text="srcTip?.text ?? null" :visible="!!srcTip" :anchor="srcTip?.anchor ?? null" />
   </template>
 </template>
 
@@ -344,6 +347,7 @@ import ItemIcon from "@/components/ItemIcon.vue";
 import Money from "@/components/Money.vue";
 import PriceImportDialog from "@/components/PriceImportDialog.vue";
 import ShoppingExportDialog from "@/components/ShoppingExportDialog.vue";
+import SourceTip from "@/components/SourceTip.vue";
 import TemplateExportDialog from "@/components/TemplateExportDialog.vue";
 import { useSessionStore } from "@/stores/session";
 import type { CalcResult, Disposition, Profession, Recipe } from "@/types";
@@ -369,6 +373,8 @@ const saveTitle = ref("");
 const saveAuthor = ref("");
 const saveNotes = ref("");
 const savePublic = ref(true);
+/** 来源列悬停浮层（共享一个实例，避免 400+ 行各建一个） */
+const srcTip = ref<{ text: string; anchor: HTMLElement } | null>(null);
 
 const profName = computed(() => professions.value.find((p) => p.key === session.state.professionKey)?.name ?? "");
 const profIcon = computed(() => professions.value.find((p) => p.key === session.state.professionKey)?.icon ?? null);
@@ -407,6 +413,17 @@ async function loadRecipes() {
 
 function isUsed(id: number) {
   return result.value?.steps.some((s) => s.recipe_id === id) ?? false;
+}
+
+function onSrcEnter(e: Event, r: Recipe) {
+  srcTip.value = {
+    text: r.source_detail ?? r.source_type,
+    anchor: e.currentTarget as HTMLElement,
+  };
+}
+
+function onSrcLeave() {
+  srcTip.value = null;
 }
 
 function dispLabel(d: string) {
@@ -575,6 +592,11 @@ async function onConfirmSave() {
   content: "×";
   color: var(--muted);
   font-size: 12px;
+}
+/* 来源列：悬停弹详情浮层 */
+.src-cell {
+  cursor: help;
+  display: inline-block;
 }
 .cnt-input {
   width: 46px;

@@ -12,7 +12,7 @@ from ..config import get_settings
 from ..database import get_db
 from ..models import Item, MaterialSource, Profession, Recipe, RecipeMaterial
 from ..schemas import MaterialOut, ProfessionOut, RecipeOut, WatchlistItemOut, WatchlistOut
-from ..services.calc import effective_prices, is_limited_vendor
+from ..services.calc import effective_prices, fmt_copper, is_limited_vendor
 
 router = APIRouter(prefix="/professions", tags=["professions"])
 
@@ -226,6 +226,30 @@ def list_recipes(
                 revenue = product_npc_price
             else:
                 revenue = 0
+        # 来源详情（悬停展示）：训练师标明可学等级；设计图标明图纸名与拍卖行/卖店价，
+        # 让用户知道这张图纸到底能不能买到、多少钱
+        source_detail: str | None = None
+        if r.source_type == "trainer":
+            source_detail = f"训练师教授\n技能 {r.skill_orange} 级可直接学习"
+        else:
+            src_item = items.get(r.source_item_id) if r.source_item_id else None
+            src_name = (
+                src_item.name
+                if src_item
+                else (f"物品{r.source_item_id}" if r.source_item_id else "未知图纸")
+            )
+            # 图纸物品名本身常带「设计图：」前缀，避免拼成「设计图：设计图：xxx」
+            head = src_name if src_name.startswith("设计图") else f"设计图：{src_name}"
+            lines = [head]
+            if server_id:
+                ah = prices.get(r.source_item_id) if r.source_item_id else None
+                lines.append(
+                    f"拍卖行：{fmt_copper(ah)}" if ah is not None else "拍卖行：暂无报价（可能靠掉落或向玩家收购）"
+                )
+                if src_item and src_item.vendor_price:
+                    lines.append(f"卖店：{fmt_copper(src_item.vendor_price)}")
+            source_detail = "\n".join(lines)
+
         out.append(
             RecipeOut(
                 id=r.id,
@@ -254,6 +278,7 @@ def list_recipes(
                     and product_ah_price is None
                     and (product_npc_price or 0) > 0
                 ),
+                source_detail=source_detail,
             )
         )
     return out

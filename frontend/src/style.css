@@ -173,10 +173,10 @@ table.grid td.wrap, table.grid th.wrap { white-space: normal; }
 .prof-card .count { font-size: 12px; color: var(--muted); }
 
 /* ---- 规划页布局：置顶参数（全宽）+ 左 3/4 配方列表 / 右 1/4 计算结果 ---- */
-/* 黄金分割：配方列表 61.8% / 计算结果 38.2% */
+/* 配方列表 : 计算结果 = 2 : 1（按用户反馈从黄金分割回调，结果栏不再占太多） */
 .plan-body {
   display: grid;
-  grid-template-columns: minmax(0, 1.618fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   gap: 16px;
   align-items: start;
 }

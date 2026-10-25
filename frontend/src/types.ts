@@ -71,6 +71,8 @@ export interface Recipe {
   product_ah_price: number | null;
   /** 成品拍卖行查不到价格 → 收入按卖店价估算（冷门信号，可手动屏蔽） */
   revenue_fallback: boolean;
+  /** 来源详情（悬停展示，\n 分行）：训练师可学等级 / 设计图名与拍卖行·卖店价 */
+  source_detail?: string | null;
 }
 
 export interface ImportSummary {

@@ -99,6 +99,8 @@ class RecipeOut(BaseModel):
     product_ah_price: int | None = None
     # 成品在拍卖行查不到价格 → 收入已回退按 NPC 卖店价估算（多为冷门配方，提示用户自行判断）
     revenue_fallback: bool = False
+    # 来源详情（悬停展示）：训练师标明可学等级；设计图标明图纸名与拍卖行/卖店价
+    source_detail: str | None = None
 
 
 # ---------- 价格 ----------
