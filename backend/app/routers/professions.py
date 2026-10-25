@@ -299,9 +299,13 @@ def list_recipes(
             lines = [head]
             if server_id:
                 ah = prices.get(r.source_item_id) if r.source_item_id else None
-                lines.append(
-                    f"拍卖行：{fmt_copper(ah)}" if ah is not None else "拍卖行：暂无报价（可能靠掉落或向玩家收购）"
-                )
+                if ah is not None:
+                    lines.append(f"拍卖行：{fmt_copper(ah)}")
+                elif r.vendor_favor:
+                    # 营地图纸在拍卖行买不到，只能去营地换青睐
+                    lines.append("拍卖行：无报价（营地图纸买不到，只能去营地换青睐）")
+                else:
+                    lines.append("拍卖行：暂无报价（可能靠掉落或向玩家收购）")
                 if src_item and src_item.vendor_price:
                     lines.append(f"卖店：{fmt_copper(src_item.vendor_price)}")
             # 图纸出处：哪个商人卖 / 哪儿掉 / 开什么箱子（官方库没收录时留空）
@@ -315,9 +319,9 @@ def list_recipes(
                 )
                 lines.append(
                     f"获得青睐：上交装满的板条箱给{camp.crate_npc or '营地NPC'}"
-                    f"（每箱 5–20 点）"
+                    f"（每箱 5–20 点，箱子和材料要自己准备）"
                 )
-                lines.append("提示：营地配方没有声望要求，配方和价格两阵营相同")
+                lines.append("提示：营地配方没有声望要求，两阵营配方和价格完全相同")
             source_detail = "\n".join(lines)
 
         out.append(

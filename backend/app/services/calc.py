@@ -179,6 +179,8 @@ class RecipeView:
     design_cost: int = 0
     design_name: str | None = None
     design_icon: str | None = None
+    # 贸易营地图纸需要的「商人青睐」点数（非声望）；0 = 不是营地配方
+    vendor_favor: int = 0
 
 
 def _band(recipe: RecipeView, skill: int) -> str:
@@ -412,6 +414,7 @@ def _load_recipes(
             design_item = items.get(r.source_item_id)
             view.design_name = design_item.name if design_item else f"物品{r.source_item_id}"
             view.design_icon = design_item.icon if design_item else None
+            view.vendor_favor = r.vendor_favor or 0
             if params.design_cost == "ah":
                 dp = prices.get(r.source_item_id)
                 if dp is not None:
@@ -535,10 +538,12 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
         # 设计图一次性成本（同一配方只计一次）
         step_design_cost = 0
         step_design_name: str | None = None
+        step_vendor_favor = 0
         if best.source_type == "design" and best.id not in design_paid:
             design_paid.add(best.id)
             step_design_cost = best.design_cost
             step_design_name = best.design_name
+            step_vendor_favor = best.vendor_favor
             if step_design_cost > 0 and best.source_item_id:
                 agg = mat_totals.setdefault(
                     best.source_item_id,
@@ -579,6 +584,7 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
                 "source_type": best.source_type,
                 "design_cost": step_design_cost,
                 "design_name": step_design_name,
+                "vendor_favor": step_vendor_favor,
                 # 成品 AH 无价 → 本步收入按卖店价估算（冷门信号，UI 提示用户可自行屏蔽）
                 "revenue_fallback": best.revenue_fallback,
             }
@@ -630,6 +636,8 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
             last["prob_end"] = st["prob_end"]
             if st["design_name"] and not last["design_name"]:
                 last["design_name"] = st["design_name"]
+            if st.get("vendor_favor"):
+                last["vendor_favor"] = st["vendor_favor"]
         else:
             merged_steps.append(dict(st))
     steps = merged_steps

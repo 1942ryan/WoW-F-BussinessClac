@@ -233,6 +233,10 @@
                   <span v-if="s.design_cost" class="tag design" :title="'设计图：' + (s.design_name ?? '')">
                     图纸 <Money :value="s.design_cost" :size="11" />
                   </span>
+                  <span v-if="s.vendor_favor" class="tag camp"
+                        :title="'贸易营地图纸，需 ' + s.vendor_favor + ' 点商人青睐（不是声望，靠上板条箱获得）'">
+                    营地 {{ s.vendor_favor }}
+                  </span>
                 </td>
                 <td class="num">{{ Math.round(s.crafts) }}</td>
                 <td class="num"><Money :value="s.net" neg-as-earn /></td>

@@ -153,6 +153,8 @@ export interface CalcStep {
   design_name: string | null;
   /** 成品拍卖行无价 → 本步收入按卖店价估算 */
   revenue_fallback?: boolean;
+  /** 本步图纸来自贸易营地，需「商人青睐」点数（非声望） */
+  vendor_favor?: number;
 }
 
 export interface MaterialTotal {
