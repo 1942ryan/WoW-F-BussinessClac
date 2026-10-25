@@ -88,6 +88,13 @@ class Recipe(Base):
     skill_gray: Mapped[int] = mapped_column(Integer)
     source_type: Mapped[str] = mapped_column(String(32))  # 训练师/设计图/商人/掉落...
     source_item_id: Mapped[int | None] = mapped_column(ForeignKey("items.id"))
+    # 图纸/配方从哪儿来（抓取自无限官方数据库专业页的「来源」列），例如
+    # 「商人 · 罗克图斯·暗契」「世界掉落 · 怪物 10–63 级」「开启 秘银宝箱」
+    source_note: Mapped[str | None] = mapped_column(String(200))
+    # 贸易营地（联盟艾泽拉斯贸易局 / 部落杜隆塔尔补给后勤部）专属图纸：
+    # 需要用「商人青睐」购买，值 = 该图纸的售价（30–360 点）。
+    # 上板条箱换青睐，与声望无关（官方原文：「配方没有声望要求」）。
+    vendor_favor: Mapped[int | None] = mapped_column(Integer)
 
     profession: Mapped[Profession] = relationship(back_populates="recipes")
     product_item: Mapped[Item | None] = relationship(foreign_keys=[product_item_id])

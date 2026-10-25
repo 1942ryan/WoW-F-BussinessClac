@@ -73,6 +73,20 @@ export interface Recipe {
   revenue_fallback: boolean;
   /** 来源详情（悬停展示，\n 分行）：训练师可学等级 / 设计图名与拍卖行·卖店价 */
   source_detail?: string | null;
+  /** 贸易营地专属图纸所需的「商人青睐」点数（非声望）；null = 不是营地配方 */
+  vendor_favor?: number | null;
+  /** 按服务器阵营给出的营地信息（联盟=艾泽拉斯贸易局 / 部落=杜隆塔尔补给后勤部） */
+  vendor_camp?: VendorCamp | null;
+}
+
+/** 贸易营地信息 */
+export interface VendorCamp {
+  camp: string;
+  npc: string;
+  zone: string;
+  coord: string;
+  crate_npc: string;
+  side: "alliance" | "horde" | "";
 }
 
 export interface ImportSummary {

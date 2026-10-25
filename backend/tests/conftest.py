@@ -105,8 +105,8 @@ def make_recipe(
     return r
 
 
-def make_server(db, name: str = "测试服") -> Server:
-    s = Server(name=name)
+def make_server(db, name: str = "测试服", faction: str = "both") -> Server:
+    s = Server(name=name, faction=faction)
     db.add(s)
     db.flush()
     return s

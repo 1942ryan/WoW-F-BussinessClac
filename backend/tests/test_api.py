@@ -270,3 +270,59 @@ def test_revenue_fallback_flag(client, db_session):
     assert calc["steps"], "应至少产生一个步骤"
     for s in calc["steps"]:
         assert s["revenue_fallback"] == (s["recipe_name"] == "冷门成品")
+
+
+def test_vendor_favor_flag(client, db_session, monkeypatch):
+    """贸易营地图纸：带 vendor_favor + vendor_camp，source_detail 说明怎么获得青睐。
+
+    营地配方用「商人青睐」购买（不是声望），两阵营价格相同，
+    所以营地信息按服务器阵营给出对应一侧。
+    """
+    from tests.conftest import make_item, make_profession, make_recipe, make_server
+
+    server = make_server(db_session, "营地服", faction="alliance")
+    prof = make_profession(db_session, "vc", "营地专业")
+    mat = make_item(db_session, 9801, "营地图纸")
+    prod = make_item(db_session, 9802, "营地成品", vendor_price=200)
+    r = make_recipe(
+        db_session, prof, prod, "营地成品", [(mat, 1)], 1, 5, 8, 12,
+        source_type="design", source_item=mat,
+    )
+    r.vendor_favor = 30
+    r.source_note = "贸易营地 · 艾泽拉斯贸易局（联盟 斯通德里·暗锤）"
+    db_session.commit()
+
+    # 伪造抓取结果（真实数据由 backend/data/vendor_recipes.json 提供）
+    from app.routers import professions as prof_mod
+
+    monkeypatch.setattr(
+        prof_mod,
+        "_vendor_data",
+        lambda: {
+            "vc": {
+                "by_item": {"9801": {"favor": 30}},
+                "alliance": {
+                    "camp": "艾泽拉斯贸易局", "npc": "斯通德里·暗锤",
+                    "zone": "赤脊山 · 三角路口", "coord": "10.2,72.5",
+                    "crate_npc": "玛茜·贝克",
+                },
+                "horde": {
+                    "camp": "杜隆塔尔补给后勤部", "npc": "戈尔马克",
+                    "zone": "贫瘠之地 · 十字路口", "coord": "49.7,29.5",
+                    "crate_npc": "多基米",
+                },
+            }
+        },
+    )
+
+    recipes = client.get(f"/api/v1/professions/vc/recipes?server_id={server.id}").json()
+    camp = [x for x in recipes if x["vendor_favor"]]
+    assert len(camp) == 1
+    item = camp[0]
+    assert item["vendor_favor"] == 30
+    # 联盟服务器 → 给联盟营地
+    assert item["vendor_camp"]["camp"] == "艾泽拉斯贸易局"
+    assert item["vendor_camp"]["npc"] == "斯通德里·暗锤"
+    detail = item["source_detail"]
+    assert "商人青睐" in detail and "30" in detail
+    assert "板条箱" in detail

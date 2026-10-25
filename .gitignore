@@ -29,3 +29,7 @@ _research/
 
 # 本机一键启动脚本（含本机绝对路径）
 start.bat
+
+# 临时截图（布局测量用）
+*.png
+!frontend/src/assets/*.png

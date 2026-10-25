@@ -72,6 +72,17 @@ class MaterialOut(BaseModel):
     line_cost: int | None = None  # qty * unit_price
 
 
+class VendorCampOut(BaseModel):
+    """贸易营地信息（联盟=艾泽拉斯贸易局 / 部落=杜隆塔尔补给后勤部）。"""
+
+    camp: str  # 营地名，如「艾泽拉斯贸易局」
+    npc: str  # 该阵营的配方商人 NPC
+    zone: str  # 所在区域，如「赤脊山 · 三角路口」
+    coord: str  # 坐标，如「10.2,72.5」
+    crate_npc: str = ""  # 交板条箱换青睐的 NPC
+    side: str = ""  # alliance / horde
+
+
 class RecipeOut(BaseModel):
     id: int
     product_item_id: int | None
@@ -101,6 +112,10 @@ class RecipeOut(BaseModel):
     revenue_fallback: bool = False
     # 来源详情（悬停展示）：训练师标明可学等级；设计图标明图纸名与拍卖行/卖店价
     source_detail: str | None = None
+    # 贸易营地专属图纸：需要「商人青睐」点数（非声望），null = 不是营地配方
+    vendor_favor: int | None = None
+    # 营地质询信息（两个阵营的营地/NPC/坐标），按服务器阵营取对应一侧
+    vendor_camp: VendorCampOut | None = None
 
 
 # ---------- 价格 ----------

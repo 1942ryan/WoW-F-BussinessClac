@@ -79,17 +79,17 @@
             <tbody>
               <tr v-for="r in visibleRecipes" :key="r.id"
                   :class="{ used: isUsed(r.id) }">
-                <td>
-                  <span class="flex" style="gap: 6px">
+                <td class="prod-cell">
+                  <div class="prod-line">
                     <ItemIcon :icon="r.product_icon" :name="r.product_name" :size="24"
                               :item-id="r.product_item_id" />
-                    <span>{{ r.product_name }}</span>
-                  </span>
-                  <span v-if="r.product_qty > 1" class="muted"> ×{{ r.product_qty }}</span>
-                  <span v-if="r.is_new" class="tag new">新</span>
-                  <span v-if="r.product_kind === 'enchant'" class="tag trainer">附魔</span>
-                  <span v-if="r.revenue_fallback" class="tag noah"
-                        title="拍卖行查不到这个成品的价格，收入已按 NPC 卖店价估算（通常是冷门配方）。不想做就点 ⊘ 屏蔽它">AH无价</span>
+                    <span class="prod-name">{{ r.product_name }}</span>
+                    <span v-if="r.product_qty > 1" class="muted">×{{ r.product_qty }}</span>
+                    <span v-if="r.is_new" class="tag new">新</span>
+                    <span v-if="r.product_kind === 'enchant'" class="tag trainer">附魔</span>
+                    <span v-if="r.revenue_fallback" class="tag noah"
+                          title="拍卖行查不到这个成品的价格，收入已按 NPC 卖店价估算（通常是冷门配方）。不想做就点 ⊘ 屏蔽它">AH无价</span>
+                  </div>
                 </td>
                 <td class="wrap">
                   <div v-for="m in r.materials" :key="m.item_id" class="flex" style="gap: 4px">
@@ -137,6 +137,10 @@
                     <span v-if="r.source_type === 'trainer'" class="tag trainer">训练师</span>
                     <span v-else-if="r.source_type === 'design'" class="tag design">设计图</span>
                     <span v-else class="tag trainer">{{ r.source_type }}</span>
+                    <span v-if="r.vendor_favor" class="tag camp"
+                          :title="'贸易营地专属图纸，需 ' + r.vendor_favor + ' 点商人青睐（不是声望）'">
+                      营地 {{ r.vendor_favor }}
+                    </span>
                   </span>
                 </td>
                 <td class="num">
@@ -557,13 +561,23 @@ async function onConfirmSave() {
   flex-wrap: wrap;
   gap: 4px;
 }
+/* ---- 成品列：图标 + 名称 + 数量/标记 全在一行 ----
+   之前这些标记写在 flex 容器外面，会被当成块级内容挤到第二行（1080P 下尤其明显） */
+.prod-cell { white-space: nowrap; }
+.prod-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+.prod-name { overflow: hidden; text-overflow: ellipsis; }
 /* ---- 技能档：竖排 + 橙黄绿灰上色 ---- */
 .skill-bands {
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 1px;
   font-size: 12px;
-  line-height: 1.35;
+  line-height: 1.3;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -577,9 +591,9 @@ async function onConfirmSave() {
 /* 宽度按「⊘ + ★最大 + ×999」撑满后的实测值留余量，避免确认状态切换时列宽抖动 */
 .op-col {
   white-space: nowrap;
-  width: 164px;
-  min-width: 164px;
-  max-width: 164px;
+  width: 152px;
+  min-width: 152px;
+  max-width: 152px;
   vertical-align: middle;
 }
 .cnt-wrap {
@@ -599,11 +613,27 @@ async function onConfirmSave() {
   display: inline-block;
 }
 .cnt-input {
-  width: 46px;
+  width: 38px;
   height: 22px;
-  padding: 0 4px;
+  padding: 0 3px;
   font-size: 12px;
   line-height: 20px;
+}
+/* ---- 窄屏（1080P 常见缩放后视口 1366~1600）压缩表格，避免材料名折行 ---- */
+.plan-recipes td.wrap .flex { white-space: nowrap; }
+@media (max-width: 1600px) {
+  .plan-recipes table.grid { font-size: 12px; }
+  .plan-recipes table.grid th { padding: 6px 6px; }
+  .plan-recipes table.grid td { padding: 5px 6px; }
+  .skill-bands { font-size: 11px; }
+  .op-col {
+    width: 140px;
+    min-width: 140px;
+    max-width: 140px;
+  }
+  .icon-btn { padding: 3px 5px; }
+  .max-tag { font-size: 10px; }
+  .cnt-input { width: 34px; }
 }
 .icon-btn {
   display: inline-flex;

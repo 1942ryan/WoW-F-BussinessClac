@@ -21,12 +21,12 @@ function place() {
   const el = props.anchor;
   if (!el) return;
   const r = el.getBoundingClientRect();
-  const w = 280;
+  const w = 340;
   let left = r.right + 10;
   if (left + w > window.innerWidth - 8) left = Math.max(8, r.left - w - 10);
   let top = r.bottom + 6;
-  // 高度未知，先按 120 估算；超出视口底部则翻到上方
-  if (top + 120 > window.innerHeight - 8) top = Math.max(8, r.top - 126);
+  // 高度未知，先按 200 估算；超出视口底部则翻到上方
+  if (top + 200 > window.innerHeight - 8) top = Math.max(8, r.top - 206);
   pos.value = { left, top };
 }
 
@@ -56,7 +56,8 @@ watch(
 .src-tip {
   position: fixed;
   z-index: 210;
-  width: 280px;
+  width: 340px;
+  max-width: calc(100vw - 16px);
   padding: 8px 11px;
   background: rgba(18, 16, 12, 0.96);
   border: 1px solid #6b5a35;

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
@@ -10,11 +11,57 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..database import get_db
-from ..models import Item, MaterialSource, Profession, Recipe, RecipeMaterial
-from ..schemas import MaterialOut, ProfessionOut, RecipeOut, WatchlistItemOut, WatchlistOut
+from ..models import (
+    FACTION_ALLIANCE,
+    FACTION_HORDE,
+    Item,
+    MaterialSource,
+    Profession,
+    Recipe,
+    RecipeMaterial,
+    Server,
+)
+from ..schemas import (
+    MaterialOut,
+    ProfessionOut,
+    RecipeOut,
+    VendorCampOut,
+    WatchlistItemOut,
+    WatchlistOut,
+)
 from ..services.calc import effective_prices, fmt_copper, is_limited_vendor
 
 router = APIRouter(prefix="/professions", tags=["professions"])
+
+# 贸易营地（商人青睐）信息：来自 data/vendor_recipes.json，抓自官方专题页 /shangren
+_VENDOR_CACHE: dict[str, dict] | None = None
+
+
+def _vendor_data() -> dict[str, dict]:
+    global _VENDOR_CACHE
+    if _VENDOR_CACHE is None:
+        f = Path(__file__).resolve().parents[2] / "data" / "vendor_recipes.json"
+        try:
+            _VENDOR_CACHE = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
+        except (OSError, ValueError):
+            _VENDOR_CACHE = {}
+    return _VENDOR_CACHE
+
+
+def _camp_for(vendor: dict, faction: str) -> VendorCampOut | None:
+    """按阵营取对应营地。both/未知 → 联盟（列表页默认展示联盟侧）。"""
+    side = faction if faction in (FACTION_ALLIANCE, FACTION_HORDE) else FACTION_ALLIANCE
+    c = vendor.get(side)
+    if not c:
+        return None
+    return VendorCampOut(
+        camp=c.get("camp", ""),
+        npc=c.get("npc", ""),
+        zone=c.get("zone", ""),
+        coord=c.get("coord", ""),
+        crate_npc=c.get("crate_npc", ""),
+        side=side,
+    )
 
 
 @router.get("/{key}/watchlist", response_model=WatchlistOut)
@@ -129,8 +176,15 @@ def list_recipes(
             raise HTTPException(400, "recipe_dispositions 需为 JSON 对象")
 
     prices: dict[int, int] = {}
+    faction = "both"
     if server_id:
         prices = effective_prices(db, server_id, price_mode, get_settings().median_window_days)
+        srv = db.get(Server, server_id)
+        if srv:
+            faction = srv.faction or "both"
+
+    vendor = _vendor_data().get(key)
+    camp = _camp_for(vendor, faction) if vendor else None
 
     recipes = (
         db.execute(
@@ -231,6 +285,8 @@ def list_recipes(
         source_detail: str | None = None
         if r.source_type == "trainer":
             source_detail = f"训练师教授\n技能 {r.skill_orange} 级可直接学习"
+            if r.source_note and r.source_note != "训练师":
+                source_detail += f"\n{r.source_note}"
         else:
             src_item = items.get(r.source_item_id) if r.source_item_id else None
             src_name = (
@@ -248,6 +304,20 @@ def list_recipes(
                 )
                 if src_item and src_item.vendor_price:
                     lines.append(f"卖店：{fmt_copper(src_item.vendor_price)}")
+            # 图纸出处：哪个商人卖 / 哪儿掉 / 开什么箱子（官方库没收录时留空）
+            if r.source_note:
+                lines.append(f"出处：{r.source_note}")
+            # 贸易营地专属图纸：需要「商人青睐」而不是声望
+            if r.vendor_favor and camp:
+                lines.append(
+                    f"商人青睐：{r.vendor_favor} 点"
+                    f"（{camp.camp} · {camp.npc}，{camp.zone} {camp.coord}）"
+                )
+                lines.append(
+                    f"获得青睐：上交装满的板条箱给{camp.crate_npc or '营地NPC'}"
+                    f"（每箱 5–20 点）"
+                )
+                lines.append("提示：营地配方没有声望要求，配方和价格两阵营相同")
             source_detail = "\n".join(lines)
 
         out.append(
@@ -279,6 +349,8 @@ def list_recipes(
                     and (product_npc_price or 0) > 0
                 ),
                 source_detail=source_detail,
+                vendor_favor=r.vendor_favor,
+                vendor_camp=camp if r.vendor_favor else None,
             )
         )
     return out

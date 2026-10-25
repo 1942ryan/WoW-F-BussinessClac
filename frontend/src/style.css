@@ -145,6 +145,8 @@ table.grid td.wrap, table.grid th.wrap { white-space: normal; }
 .tag.disp { background: #eef0f4; color: #4a5568; }
 /* AH 无价：冷门信号，需要用户自己判断是否屏蔽 */
 .tag.noah { background: #fde8ea; color: #a03048; border: 1px solid #f0bcc4; font-weight: 600; cursor: help; }
+/* 贸易营地专属图纸：需「商人青睐」点数购买（与声望无关） */
+.tag.camp { background: #e6f2f7; color: #14607a; border: 1px solid #a9d4e3; font-weight: 600; cursor: help; white-space: nowrap; }
 
 .muted { color: var(--muted); }
 .money { font-variant-numeric: tabular-nums; white-space: nowrap; }
