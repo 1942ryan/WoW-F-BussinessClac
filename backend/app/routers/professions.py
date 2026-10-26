@@ -29,7 +29,7 @@ from ..schemas import (
     WatchlistItemOut,
     WatchlistOut,
 )
-from ..services.calc import effective_prices, fmt_copper, is_limited_vendor
+from ..services.calc import ah_net_of, effective_prices, fmt_copper, is_limited_vendor
 
 router = APIRouter(prefix="/professions", tags=["professions"])
 
@@ -177,8 +177,10 @@ def list_recipes(
 
     prices: dict[int, int] = {}
     faction = "both"
+    settings = get_settings()
+    ah_cut_rate = float(getattr(settings, "ah_cut_rate", 0.05) or 0.0)
     if server_id:
-        prices = effective_prices(db, server_id, price_mode, get_settings().median_window_days)
+        prices = effective_prices(db, server_id, price_mode, settings.median_window_days)
         srv = db.get(Server, server_id)
         if srv:
             faction = srv.faction or "both"
@@ -275,7 +277,12 @@ def list_recipes(
             ah_price = prices.get(r.product_item_id)
             product_ah_price = ah_price * r.product_qty if ah_price is not None else None
             if disp == "sell_ah":
-                revenue = product_ah_price if product_ah_price is not None else product_npc_price
+                # 与路线计算同口径：拍卖行收入按扣完 5% 手续费的到手价
+                revenue = (
+                    ah_net_of(product_ah_price, ah_cut_rate)
+                    if product_ah_price is not None
+                    else product_npc_price
+                )
             elif disp == "sell_npc":
                 revenue = product_npc_price
             else:

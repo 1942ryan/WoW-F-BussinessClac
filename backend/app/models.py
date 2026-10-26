@@ -53,6 +53,10 @@ class Item(Base):
     status: Mapped[str | None] = mapped_column(String(16))  # new/rebuilt/changed/same/missing
     icon: Mapped[str | None] = mapped_column(String(256))  # 图标 URL（无限官方库）
     vendor_price: Mapped[int] = mapped_column(Integer, default=0)  # 卖店价（铜）
+    # 游戏内 tooltip 全文（JSON 字符串数组），来自官方 API 的 tooltip 字段。
+    # 例：["装备后绑定","胸部\t皮甲","护甲值 62","+2 耐力","需要等级 7","售价：1银92铜"]
+    # 悬停信息卡按这块数据渲染，做到「跟游戏里看到的一样」。
+    tooltip: Mapped[str | None] = mapped_column(Text)
 
 
 class Profession(Base):

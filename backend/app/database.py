@@ -56,6 +56,8 @@ _EXTRA_COLUMNS: list[tuple[str, str, str]] = [
     ("recipes", "source_note", "VARCHAR(200)"),
     # 贸易营地（艾泽拉斯贸易局 / 杜隆塔尔补给后勤部）出售的图纸需要「商人青睐」点数
     ("recipes", "vendor_favor", "INTEGER"),
+    # 游戏内 tooltip 全文（JSON 字符串数组），悬停信息卡渲染用
+    ("items", "tooltip", "TEXT"),
 ]
 
 

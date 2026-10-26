@@ -1,10 +1,20 @@
+<script lang="ts">
+/** 模块级自增：保证每个组件实例的渐变 id 唯一（<script setup> 里的顶层代码是「每实例执行」，不能用来计数） */
+let uidSeq = 0;
+export function nextCoinUid(): string {
+  return `coin${++uidSeq}`;
+}
+</script>
+
 <script setup lang="ts">
 /**
- * 金钱显示：金币/银币/铜币图标 + 数字。
+ * 金钱显示：数字 + 金币/银币/铜币图标（顺序同游戏内：先数字后图标，如「1金87银58铜」）。
  *
- * 图标来自 wowplayer.cc 的 .coin-gold/.coin-silver/.coin-copper（原生 13×13 GIF），
- * 以 base64 内联 —— 三个文件加起来不到 1 KB，省掉额外请求，且不会被缩放糊掉。
- * 之前用官方图库里的 JPG 缩到 13px，辨认度很差。
+ * 图标走内联 SVG（矢量）而不是位图：
+ * - 游戏原生贴图只有 16×16（UI-GoldIcon / UI-SilverIcon / UI-CopperIcon），
+ *   在 1080P 缩放到 13px 再被系统缩放会出现锯齿/发糊，之前用的 13×13 GIF 更明显；
+ * - 矢量按当前 DPI 实时绘制，13px 与 26px 都锐利，且只有几百字节、无需网络请求。
+ * 配色取自游戏原生贴图中心像素：金 #d8c14d / 银 #9a999a / 铜 #ac714c。
  */
 import { computed } from "vue";
 
@@ -36,16 +46,51 @@ const parts = computed(() => {
   if (copper || props.showZero || !out.length) out.push({ kind: "copper", n: copper });
   return { neg, out };
 });
-</script>
 
+/** 渐变 id 必须唯一，否则同页面多个实例会互相覆盖（Safari 尤其明显） */
+const uid = nextCoinUid();
+
+// 中心亮 → 边缘暗，模拟游戏里带弧面的金属圆片
+const PALETTE: Record<CoinKind, { rim: string; hi: string; mid: string; lo: string }> = {
+  gold: { rim: "#6a4f0f", hi: "#fdf3ad", mid: "#d8c14d", lo: "#8a6a13" },
+  silver: { rim: "#46454a", hi: "#f4f3f5", mid: "#adacb0", lo: "#67666b" },
+  copper: { rim: "#572c14", hi: "#eab48a", mid: "#ac714c", lo: "#6b3819" },
+};
+</script>
 
 <template>
   <span v-if="parts" class="money-ic" :style="{ fontSize: size + 2 + 'px' }">
     <span v-if="parts.neg && !negAsEarn" class="neg-sign">−</span>
     <span v-else-if="parts.neg && negAsEarn" class="earn-sign">赚</span>
     <span v-for="(p, i) in parts.out" :key="i" class="money-unit">
-      <span class="coin" :class="'coin-' + p.kind" :style="{ width: size + 'px', height: size + 'px' }" />
       <span class="money-num">{{ p.n }}</span>
+      <svg
+        class="coin"
+        :width="size"
+        :height="size"
+        viewBox="0 0 16 16"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <defs>
+          <radialGradient :id="uid + p.kind + i" cx="36%" cy="28%" r="80%">
+            <stop offset="0%" :stop-color="PALETTE[p.kind].hi" />
+            <stop offset="48%" :stop-color="PALETTE[p.kind].mid" />
+            <stop offset="100%" :stop-color="PALETTE[p.kind].lo" />
+          </radialGradient>
+        </defs>
+        <circle cx="8" cy="8" r="7.1" :fill="PALETTE[p.kind].rim" />
+        <circle cx="8" cy="8" r="6.05" :fill="`url(#${uid}${p.kind}${i})`" />
+        <ellipse
+          cx="6.1"
+          cy="5.05"
+          rx="1.95"
+          ry="1.1"
+          fill="#fff"
+          opacity="0.45"
+          transform="rotate(-28 6.1 5.05)"
+        />
+      </svg>
     </span>
   </span>
   <span v-else class="muted">—</span>
@@ -72,19 +117,11 @@ const parts = computed(() => {
 }
 .coin {
   display: inline-block;
-  margin-right: 1px;
+  margin-left: 1px;
   flex: none;
-  background-repeat: no-repeat;
-  background-position: center;
-  background-size: contain;
-  /* 原生 13×13 缩到更小时用最近邻，避免发虚 */
-  image-rendering: -webkit-optimize-contrast;
-  image-rendering: pixelated;
+  /* 矢量图形，浏览器按设备像素比绘制，不需要 pixelated */
   vertical-align: -2px;
 }
-.coin-gold { background-image: url(data:image/gif;base64,R0lGODlhDQANAPP/ACUjG4hzG9e4F+LWcKmLC15RH+jKOMGbHNK5RbCaMT01GMmoLOXgk//nSbeSFgAAACH+DGdpZjRqMTIxNCAgIAAh+QQFyAAPACwAAAAADQANAAMEWfDJB5QC+E5ciDtgoFHB4XzGciqkenrOIgSPIgjmoeoGAQSpD26BQMwACUMiRiwafQvDgIEYDIqyAKCQmDKsxR4GQBBUnUqWROFoGN4I0YRSKdgLgPlmrI8AADvShmCDMFwuD8MkQCgAEgME4jJ4RARSKBYcD3APDBIZPiIVGhgCAhIGMiMkJQCYAAWVKyiblSEAOw==); }
-.coin-silver { background-image: url(data:image/gif;base64,R0lGODlhDQANAPP/ABISEiYmJjU1NUdHSFlZWWdnZ3Z2doaGhpaWlqmpqbW1tcTExNfX1wAAAAAAAAAAACH+DGdpZjRqMTIxNCAgIAAh+QQFyAAPACwAAAAADQANAAMEWvDJF2oVYcogSjlGMQBTMHgFghAGkQnHgRKoUaVyERq8PRwIkOeQQPAChGIPqDQIBggFI5FgLIoHVyDF6C4UsYOAJOApFsGEmLQhUhUJgUYiIAxOAfa8AshoIgA7zAExQGAkFUtiwTEYFB7zAVJyKjgcHhQHBw4VNRUSFwsdDwQDB4c2BHYGFAMTKyITEBERGQE1miQFGiorIQA7); }
-.coin-copper { background-image: url(data:image/gif;base64,R0lGODlhDQANAPP/ACYeHIY7GbF1T08wINKqipdWM2Y+KbyLaaZnQXw7GIhHJceBT5VJINy8oaRcMQAAACH+DGdpZjRqMTIxNCAgIAAh+QQFyAAPACwAAAAADQANAAMEWvBJCaqdE4ygijIABnABszgJM0iDoyhBEpQF8wAKoiQK09cJgAHh+gkEQEAB6VkKDkmFgEAoHAgHAUJVsTYaWCQqJCwgsAiEABS6GQSLxROEkRgG90G7btlLIgA7y4VgIUAeulKHoPC0sbiYNDJpTyQIMDFHDBoYGBoFAYMoAQcMBweMMicoIQA7); }
 .neg-sign {
   margin-right: 1px;
 }

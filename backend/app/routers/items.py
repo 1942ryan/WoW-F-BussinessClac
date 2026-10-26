@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -14,6 +16,19 @@ from ..services.calc import effective_prices
 from ..services.importer import normalize_name
 
 router = APIRouter(prefix="/items", tags=["items"])
+
+
+def _tooltip_lines(raw: str | None) -> list[str]:
+    """items.tooltip 存的是 JSON 字符串数组；脏数据一律当空，不抛 500。"""
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, list):
+        return []
+    return [str(x) for x in data if isinstance(x, str)]
 
 
 @router.get("/search")
@@ -70,4 +85,5 @@ def item_detail(item_id: int, server_id: int | None = Query(default=None), db: S
         vendor_price=item.vendor_price,
         effective_ah=effective_ah,
         record_count=record_count,
+        tooltip=_tooltip_lines(item.tooltip),
     )

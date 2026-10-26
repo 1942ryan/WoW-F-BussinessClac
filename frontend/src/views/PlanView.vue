@@ -195,6 +195,16 @@
           </div>
         </div>
 
+        <!-- 口径说明：恒定显示一行，避免随处置方式切换而抖动 -->
+        <div class="calc-note">
+          成交收入按拍卖行<strong>到手价</strong>计算：已扣
+          {{ Math.round(result.totals.ah_cut_rate * 100) }}% 手续费
+          <template v-if="result.totals.ah_cut > 0">
+            （本路线共 <Money :value="result.totals.ah_cut" :size="11" />）
+          </template>
+          ；卖店 / 自用不计手续费。
+        </div>
+
         <!-- 材料采购清单入口（点开为右侧抽屉） -->
         <div class="flex flex-wrap" style="margin: 10px 0; gap: 8px">
           <button class="btn primary" @click="showShopping = true"
@@ -532,6 +542,17 @@ async function onConfirmSave() {
 </script>
 
 <style scoped>
+/* 口径说明：拍卖行手续费扣除（恒定一行，不随处置方式切换而出现/消失） */
+.calc-note {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--muted, #7a7264);
+}
+.calc-note strong {
+  color: var(--text, #3a3327);
+  font-weight: 600;
+}
 .save-mask {
   position: fixed; inset: 0; background: rgba(30, 25, 15, 0.45);
   display: flex; align-items: center; justify-content: center; z-index: 50;

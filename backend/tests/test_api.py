@@ -326,3 +326,44 @@ def test_vendor_favor_flag(client, db_session, monkeypatch):
     detail = item["source_detail"]
     assert "商人青睐" in detail and "30" in detail
     assert "板条箱" in detail
+
+
+def test_item_tooltip_and_ah_cut(client, db_session):
+    """物品详情返回游戏内 tooltip 原文；拍卖行收入按扣 5% 手续费的到手价。"""
+    import json as _json
+
+    from tests.conftest import add_price, make_item, make_profession, make_recipe, make_server
+
+    server = make_server(db_session, "口径服")
+    prof = make_profession(db_session, "bs", "锻造")
+    m1 = make_item(db_session, 2840, "铜锭")
+    p1 = make_item(db_session, 2851, "铜棒", item_level=12, quality=2)
+    p1.tooltip = _json.dumps(
+        ["装备后绑定", "胸部\t皮甲", "护甲值 62", "+2 耐力", "需要等级 7", "售价：1银92铜"],
+        ensure_ascii=False,
+    )
+    make_recipe(db_session, prof, p1, "铜棒", [(m1, 1)], 1, 10, 12, 15)
+    add_price(db_session, server, m1, 100)
+    add_price(db_session, server, p1, 200)
+    db_session.commit()
+
+    tip = client.get(f"/api/v1/items/{p1.id}?server_id={server.id}").json()
+    assert tip["tooltip"][1] == "胸部\t皮甲"
+    assert tip["tooltip"][-1] == "售价：1银92铜"
+
+    calc = client.post(
+        "/api/v1/routes/calc",
+        json={
+            "server_id": server.id,
+            "profession_key": "bs",
+            "from_skill": 1,
+            "to_skill": 10,
+            "price_mode": "latest",
+            "product_disposition": "sell_ah",
+        },
+    ).json()
+    # 材料 100、成品挂 200 → 到手 190，每次净成本 -90
+    assert calc["totals"]["ah_cut_rate"] == 0.05
+    step = calc["steps"][0]
+    assert step["revenue"] == step["crafts"] * 190
+    assert step["ah_cut"] == step["crafts"] * 10

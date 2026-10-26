@@ -79,6 +79,23 @@ def fmt_copper(copper: int) -> str:
     return ("-" if neg else "") + "".join(parts)
 
 
+# 拍卖行手续费（成交抽成）。经典旧世与本服均为 5%，按铜向下取整：
+# 卖家到手 = 成交价 − floor(成交价 × 费率)。费率可用 WOWFC_AH_CUT_RATE 覆盖。
+DEFAULT_AH_CUT_RATE = 0.05
+
+
+def ah_cut_of(gross: int, rate: float) -> int:
+    """拍卖行抽成（铜），向下取整；费率为 0 时返回 0。"""
+    if gross <= 0 or rate <= 0:
+        return 0
+    return int(gross * rate)
+
+
+def ah_net_of(gross: int, rate: float) -> int:
+    """拍卖行成交后的到手价（铜）。"""
+    return gross - ah_cut_of(gross, rate)
+
+
 def effective_prices(
     db: Session,
     server_id: int,
@@ -169,7 +186,8 @@ class RecipeView:
     product_icon: str | None = None  # 成品图标 URL
     mats: list[MatLine] = field(default_factory=list)
     mat_cost: int | None = None  # 每次材料成本（铜）
-    revenue: int | None = None  # 每次成品收入（铜）
+    revenue: int | None = None  # 每次成品收入（铜，拍卖行已扣手续费）
+    ah_cut: int = 0  # 每次成品被拍卖行抽走的量（铜），仅 sell_ah 且成交时有值
     net: int | None = None  # 每次净成本
     cost_per_point: float | None = None
     missing: list[str] = field(default_factory=list)  # 缺价格的材料名
@@ -249,6 +267,7 @@ def _load_recipes(
     profession: Profession,
     prices: dict[int, int],
     params: CalcIn,
+    ah_cut_rate: float = DEFAULT_AH_CUT_RATE,
 ) -> tuple[list[RecipeView], list[dict]]:
     """加载专业配方并计算每个配方的成本/收入；返回 (可用视图, 排除说明)。"""
     recipes = (
@@ -397,8 +416,12 @@ def _load_recipes(
             if disposition == "sell_ah":
                 ah = prices.get(r.product_item_id)
                 if ah is not None:
-                    revenue = ah * r.product_qty
+                    # 拍卖行成交后系统抽 5%，按「到手价」计收入（这才是真实回款）
+                    gross = ah * r.product_qty
+                    view.ah_cut = ah_cut_of(gross, ah_cut_rate)
+                    revenue = gross - view.ah_cut
                 else:
+                    # 回退卖店价：NPC 收购不抽手续费
                     vp = items[r.product_item_id].vendor_price
                     revenue = vp * r.product_qty
                     view.revenue_fallback = vp > 0
@@ -436,7 +459,8 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
     prices = effective_prices(
         db, params.server_id, params.price_mode, settings.median_window_days
     )
-    views, excluded = _load_recipes(db, profession, prices, params)
+    ah_cut_rate = float(getattr(settings, "ah_cut_rate", DEFAULT_AH_CUT_RATE) or 0.0)
+    views, excluded = _load_recipes(db, profession, prices, params, ah_cut_rate)
 
     probs = {
         "orange": params.prob_orange if params.prob_orange is not None else settings.prob_orange,
@@ -460,6 +484,7 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
     total_crafts = 0.0
     total_mat = 0
     total_rev = 0
+    total_cut = 0
     skill = float(params.from_skill)
 
     def chance(v: RecipeView, s: float) -> float:
@@ -534,6 +559,7 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
         step_net = best.net * crafts
         step_mat = best.mat_cost * crafts
         step_rev = best.revenue * crafts
+        step_cut = best.ah_cut * crafts
 
         # 设计图一次性成本（同一配方只计一次）
         step_design_cost = 0
@@ -579,6 +605,7 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
                 "disposition": best.disposition,
                 "mat_cost": step_mat,
                 "revenue": step_rev,
+                "ah_cut": step_cut,
                 "net": step_net,
                 "confirmed": best.id in remaining,
                 "source_type": best.source_type,
@@ -601,6 +628,7 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
         total_crafts += crafts
         total_mat += step_mat
         total_rev += step_rev
+        total_cut += step_cut
         skill = skill + gained
 
         # 确认次数消耗
@@ -631,6 +659,7 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
             last["crafts"] += st["crafts"]
             last["mat_cost"] += st["mat_cost"]
             last["revenue"] += st["revenue"]
+            last["ah_cut"] += st["ah_cut"]
             last["net"] += st["net"]
             last["design_cost"] += st["design_cost"]
             last["prob_end"] = st["prob_end"]
@@ -692,6 +721,8 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
             "crafts": total_crafts,
             "mat_cost": total_mat,
             "revenue": total_rev,
+            "ah_cut": total_cut,
+            "ah_cut_rate": ah_cut_rate,
             "net": net_total,
             "net_display": fmt_copper(net_total),
         },

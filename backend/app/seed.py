@@ -262,16 +262,51 @@ def fill_vendor() -> None:
         db.close()
 
 
+def fill_tooltips() -> None:
+    """把 item_tooltips.json 的游戏内 tooltip 全文灌进 items.tooltip（JSON 数组）。
+
+    只更新已有物品，不新增；可反复执行（幂等）。
+    """
+    init_db()
+    f = DATA_DIR / "item_tooltips.json"
+    if not f.exists():
+        print("未找到 item_tooltips.json，跳过（先跑 scraper/scrape_tooltips.py）")
+        return
+    data = json.loads(f.read_text(encoding="utf-8")).get("items", {})
+    db = SessionLocal()
+    try:
+        items = db.execute(select(Item)).scalars().all()
+        n = 0
+        for it in items:
+            rec = data.get(str(it.id))
+            if not rec:
+                continue
+            lines = rec.get("tooltip") or []
+            if not lines:
+                continue
+            payload = json.dumps(lines, ensure_ascii=False)
+            if it.tooltip != payload:
+                it.tooltip = payload
+                n += 1
+        db.commit()
+        print(f"已写入/更新 {n} 个物品的游戏内 tooltip（共 {len(items)} 个物品）")
+    finally:
+        db.close()
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true", help="清空重建配方数据")
     ap.add_argument("--sources-only", action="store_true", help="只灌配方来源，不重建")
     ap.add_argument("--vendor-only", action="store_true", help="只灌贸易营地标注，不重建")
+    ap.add_argument("--tooltips-only", action="store_true", help="只灌物品游戏内 tooltip，不重建")
     args = ap.parse_args()
     if args.vendor_only:
         fill_vendor()
     elif args.sources_only:
         fill_sources()
+    elif args.tooltips_only:
+        fill_tooltips()
     else:
         seed(force=args.force)
 

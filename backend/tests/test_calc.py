@@ -12,6 +12,8 @@ from app.schemas import CalcIn
 from app.services.calc import (
     _chance,
     _expected_crafts,
+    ah_cut_of,
+    ah_net_of,
     calc_route,
     effective_prices,
     fmt_copper,
@@ -128,7 +130,14 @@ class TestCalcRoute:
         assert result["steps"][0]["prob_end"] == pytest.approx(0.2)
         assert result["steps"][0]["crafts"] == pytest.approx(20.4166666, abs=1e-3)
         assert result["totals"]["crafts"] == pytest.approx(20.4166666, abs=1e-3)
-        assert result["totals"]["net"] == 0  # 收入正好抵材料
+        # 拍卖行收入按到手价（扣 5% 手续费）计：收入不再正好抵材料，
+        # 净成本 = 成交额 × 5%，这正是「上架其实要贴手续费」的真实口径
+        assert result["totals"]["revenue"] == pytest.approx(
+            result["totals"]["mat_cost"] * (1 - 0.05), rel=1e-6
+        )
+        assert result["totals"]["net"] == pytest.approx(result["totals"]["mat_cost"] * 0.05, rel=1e-6)
+        assert result["totals"]["ah_cut"] == pytest.approx(result["totals"]["mat_cost"] * 0.05, rel=1e-6)
+        assert result["steps"][0]["ah_cut"] > 0
 
     def test_single_recipe_bands_fixed(self, db_session):
         """fixed 模式（旧口径）：橙 9 + 黄 4 + 绿 12 = 25 次，合并为一段。"""
@@ -596,3 +605,33 @@ class TestFmtCopper:
         assert fmt_copper(12304) == "1金23银4铜"
         assert fmt_copper(250) == "2银50铜"
         assert fmt_copper(-150) == "-1银50铜"
+
+
+class TestAuctionCut:
+    """拍卖行手续费：卖家拿到的是「到手价」，不是挂牌价。"""
+
+    def test_cut_and_net(self):
+        assert ah_cut_of(10000, 0.05) == 500
+        assert ah_net_of(10000, 0.05) == 9500
+        assert ah_cut_of(19, 0.05) == 0  # 按铜向下取整，不足 1 铜不收
+        assert ah_net_of(19, 0.05) == 19
+        assert ah_net_of(1000, 0.0) == 1000  # 费率置 0 = 旧口径
+        assert ah_cut_of(0, 0.05) == 0
+        assert ah_cut_of(-100, 0.05) == 0  # 负成交额不应产生负手续费
+
+    def test_sell_npc_has_no_cut(self, db_session):
+        """卖店/自用不经拍卖行，不应出现任何手续费。"""
+        _prof, server, _ = _build_scenario(db_session)
+        result = calc_route(
+            db_session,
+            CalcIn(
+                server_id=server.id,
+                profession_key="test",
+                from_skill=1,
+                to_skill=15,
+                product_disposition="self_use",
+            ),
+            _settings(),
+        )
+        assert result["totals"]["ah_cut"] == 0
+        assert all(s["ah_cut"] == 0 for s in result["steps"])

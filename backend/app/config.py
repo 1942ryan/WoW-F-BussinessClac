@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     prob_gray: float = 0.0
     # 中位数统计窗口（天）；0 表示不限制
     median_window_days: int = 0
+    # 拍卖行手续费率：成交后系统抽成，卖家到手 = 成交价 ×(1-费率)。
+    # 经典旧世/无限均为 5%；改成 0 即按「不扣手续费」的旧口径计算。
+    ah_cut_rate: float = 0.05
 
     @property
     def cors_origin_list(self) -> list[str]:

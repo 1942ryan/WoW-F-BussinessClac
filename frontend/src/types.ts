@@ -23,6 +23,8 @@ export interface ItemDetail {
   vendor_price: number;
   effective_ah: number | null;
   record_count: number;
+  /** 游戏内 tooltip 全文（逐行）：绑定/部位/护甲值/属性/装备效果/售价 */
+  tooltip: string[];
 }
 
 export interface Profession {
@@ -146,6 +148,8 @@ export interface CalcStep {
   disposition?: string | null;
   mat_cost: number;
   revenue: number;
+  /** 本步被拍卖行抽走的手续费（铜）；revenue 已扣除此项 */
+  ah_cut?: number;
   net: number;
   confirmed: boolean;
   source_type: string;
@@ -173,6 +177,9 @@ export interface CalcTotals {
   crafts: number;
   mat_cost: number;
   revenue: number;
+  /** 拍卖行抽走的 5% 手续费（铜）；revenue 已扣除此项 */
+  ah_cut: number;
+  ah_cut_rate: number;
   net: number;
   net_display: string;
 }

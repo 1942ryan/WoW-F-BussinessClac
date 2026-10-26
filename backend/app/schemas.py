@@ -209,6 +209,7 @@ class CalcStepOut(BaseModel):
     disposition: str | None = None  # 本段产物处置
     mat_cost: float
     revenue: float
+    ah_cut: float = 0  # 本段被拍卖行抽走的手续费（铜），revenue 已扣除此项
     net: float
     confirmed: bool
     source_type: str
@@ -233,6 +234,8 @@ class CalcTotalsOut(BaseModel):
     crafts: float
     mat_cost: float
     revenue: float
+    ah_cut: float = 0  # 全程被拍卖行抽走的手续费（铜）
+    ah_cut_rate: float = 0.05  # 手续费率（UI 用于显示「已扣 5%」）
     net: float
     net_display: str
 
@@ -308,6 +311,9 @@ class ItemDetailOut(BaseModel):
     vendor_price: int = 0  # 卖店价（铜）
     effective_ah: int | None = None  # 当前服务器拍卖行有效价（铜）
     record_count: int = 0  # 价格流水条数
+    # 游戏内 tooltip 全文（逐行），前端按「跟游戏一样」的版式渲染：
+    # 绑定/部位\t护甲类型/护甲值/属性/需要等级/装备效果/售价
+    tooltip: list[str] = []
 
 
 class RouteListItemOut(BaseModel):
