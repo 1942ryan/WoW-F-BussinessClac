@@ -144,6 +144,14 @@ function rowIsGreen(line: string): boolean {
   return GREEN_RE.test(line) && !line.startsWith("唯一");
 }
 
+/** 距今多久：<1 小时按分钟，<48 小时按小时，再长按天。 */
+function ageText(hours: number | null | undefined): string {
+  if (hours === null || hours === undefined) return "";
+  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))} 分钟前`;
+  if (hours < 48) return `${Math.round(hours)} 小时前`;
+  return `${Math.round(hours / 24)} 天前`;
+}
+
 function place() {
   const el = props.anchor;
   if (!el) return;
@@ -254,7 +262,17 @@ onBeforeUnmount(() => window.clearTimeout(timer));
           <span class="k">拍卖行</span>
           <Money v-if="detail.effective_ah !== null" :value="detail.effective_ah" :size="12" />
           <span v-else class="none">暂无价格</span>
-          <span v-if="detail.record_count" class="cnt">· {{ detail.record_count }} 条流水</span>
+          <span v-if="detail.effective_ah !== null && detail.price_age_hours != null"
+                class="cnt" :class="{ warn: detail.price_stale }">
+            · {{ ageText(detail.price_age_hours) }}
+          </span>
+          <span v-if="detail.record_count && detail.effective_ah === null" class="cnt">
+            · {{ detail.record_count }} 条流水
+          </span>
+        </div>
+        <!-- 超期提示：价格太旧就明确说清楚，别让人照着三天前的价冲级 -->
+        <div v-if="detail.effective_ah !== null && detail.price_stale" class="tip-stale">
+          ⚠ 这条报价已超过 {{ detail.price_valid_hours }} 小时有效期，建议重新导价
         </div>
       </template>
     </div>
@@ -364,5 +382,14 @@ onBeforeUnmount(() => window.clearTimeout(timer));
 .tip-ah .none,
 .tip-ah .cnt {
   color: #8d8571;
+}
+.tip-ah .cnt.warn {
+  color: #d98c8c;
+}
+.tip-stale {
+  margin-top: 4px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: #d98c8c;
 }
 </style>

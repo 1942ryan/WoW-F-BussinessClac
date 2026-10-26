@@ -108,8 +108,14 @@ class RecipeOut(BaseModel):
     # 产物双价格（单次产出，铜）：卖店价 / 拍卖行有效价（无流水为 None）
     product_npc_price: int | None = None
     product_ah_price: int | None = None
+    # 拍卖行到手价（已扣手续费，单次产出）；无流水为 None
+    product_ah_net: int | None = None
     # 成品在拍卖行查不到价格 → 收入已回退按 NPC 卖店价估算（多为冷门配方，提示用户自行判断）
     revenue_fallback: bool = False
+    # 拍卖行有价但到手价不如卖店 → 收入已自动改按卖店价计
+    revenue_npc_better: bool = False
+    # 有冷却时间（CD）：界面确认采用时默认制作次数 1（其余默认不限）
+    has_cooldown: bool = False
     # 来源详情（悬停展示）：训练师标明可学等级；设计图标明图纸名与拍卖行/卖店价
     source_detail: str | None = None
     # 贸易营地专属图纸：需要「商人青睐」点数（非声望），null = 不是营地配方
@@ -216,6 +222,8 @@ class CalcStepOut(BaseModel):
     design_cost: int = 0  # 本段一次性设计图成本（铜，AH 购买时）
     design_name: str | None = None  # 设计图物品名
     revenue_fallback: bool = False  # 本段成品拍卖行无价 → 收入按 NPC 卖店价估算
+    revenue_source: str = "ah"  # ah=拍卖行到手价 / npc=卖店价 / none=自用
+    revenue_npc_better: bool = False  # 拍卖行有价但到手价不如卖店 → 该段已按卖店价计
     vendor_favor: int = 0  # 本段图纸来自贸易营地，需「商人青睐」点数（非声望）
 
 
@@ -311,9 +319,30 @@ class ItemDetailOut(BaseModel):
     vendor_price: int = 0  # 卖店价（铜）
     effective_ah: int | None = None  # 当前服务器拍卖行有效价（铜）
     record_count: int = 0  # 价格流水条数
+    # 这条拍卖价是哪次导入的、距今多久、是否超过有效期（前端 tooltip 里显示）
+    price_updated_at: datetime | None = None
+    price_age_hours: float | None = None
+    price_stale: bool = False
+    price_valid_hours: int = 24
     # 游戏内 tooltip 全文（逐行），前端按「跟游戏一样」的版式渲染：
     # 绑定/部位\t护甲类型/护甲值/属性/需要等级/装备效果/售价
     tooltip: list[str] = []
+
+
+class PriceFreshnessOut(BaseModel):
+    """云价格新鲜度：本服最近一次导入时间、覆盖情况、过期条数。"""
+
+    server_id: int
+    server_name: str | None = None
+    last_import_at: datetime | None = None  # 最近一次导入批次时间
+    age_hours: float | None = None  # 最近一次导入距今小时数
+    batch_count: int = 0
+    item_count: int = 0  # 有有效价的物品数
+    stale_items: int = 0  # 超过有效期的物品数
+    oldest_age_hours: float | None = None
+    last_imported_by: str | None = None
+    valid_hours: int = 24
+    stale: bool = False  # 最近一次导入本身已过期（整服数据都不能信）
 
 
 class RouteListItemOut(BaseModel):

@@ -92,6 +92,7 @@ def save_route(payload: RouteSaveIn, db: Session = Depends(get_db)) -> RouteDeta
         prob_green=payload.prob_green,
         steps=json.dumps(result["steps"], ensure_ascii=False),
         totals=json.dumps(result["totals"], ensure_ascii=False),
+        materials=json.dumps(result.get("materials", []), ensure_ascii=False),
         is_public=payload.is_public,
         share_code=secrets.token_urlsafe(8)[:10],
     )
@@ -106,7 +107,7 @@ def _detail_out(db: Session, route: SavedRoute, result: dict | None = None) -> R
         result = {
             "steps": json.loads(route.steps),
             "totals": json.loads(route.totals),
-            "materials": [],
+            "materials": json.loads(route.materials) if route.materials else [],
             "warnings": [],
         }
     server = db.get(Server, route.server_id)
@@ -203,7 +204,35 @@ def route_detail(share_code: str, db: Session = Depends(get_db)) -> RouteDetailO
     ).scalar_one_or_none()
     if route is None:
         raise HTTPException(404, "路线不存在")
-    return _detail_out(db, route)
+    detail = _detail_out(db, route)
+    if not detail.materials:
+        # 老路线没有材料清单快照 → 按当前价格补算一次（只用于展示采购清单，
+        # steps/totals 仍用保存时的快照，避免数字前后不一致）
+        try:
+            prof = db.get(Profession, route.profession_id)
+            params = CalcIn(
+                server_id=route.server_id,
+                profession_key=prof.key if prof else "",
+                from_skill=route.from_skill,
+                to_skill=route.to_skill,
+                price_mode=route.price_mode,
+                product_disposition=route.product_disposition,
+                blocked_recipe_ids=json.loads(route.blocked_recipe_ids),
+                blocked_item_ids=json.loads(route.blocked_item_ids),
+                confirmed_recipe_ids=json.loads(route.confirmed_recipe_ids),
+                confirmed_counts=json.loads(route.confirmed_counts or "{}"),
+                recipe_dispositions=json.loads(route.recipe_dispositions or "{}"),
+                include_designs=route.include_designs,
+                design_cost=route.design_cost,
+                prob_mode=route.prob_mode or "formula",
+                prob_orange=route.prob_orange,
+                prob_yellow=route.prob_yellow,
+                prob_green=route.prob_green,
+            )
+            detail.materials = calc_route(db, params, get_settings()).get("materials", [])
+        except (ValueError, KeyError):
+            pass
+    return detail
 
 
 @router.post("/{share_code}/recalc", response_model=CalcOut)

@@ -11,12 +11,13 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..database import get_db
 from ..models import FACTION_BOTH, Item, PriceBatch, PriceRecord, Server
-from ..services.calc import effective_prices
+from ..services.calc import effective_prices, latest_price_records, price_age_hours
 from ..schemas import (
     EffectivePriceOut,
     ImportSummaryOut,
     ItemPriceOut,
     ManualPriceIn,
+    PriceFreshnessOut,
     PriceHistoryPointOut,
 )
 from ..services.importer import ImportParseError, normalize_name, parse_csv
@@ -190,6 +191,51 @@ def _faction_scope(db: Session, server_id: int):
     if faction == FACTION_BOTH:
         return None
     return (PriceRecord.faction == faction) | (PriceRecord.faction == FACTION_BOTH)
+
+
+@router.get("/freshness", response_model=PriceFreshnessOut)
+def price_freshness(server_id: int, db: Session = Depends(get_db)) -> PriceFreshnessOut:
+    """云价格有效期：本服最近一次导入是什么时候、有多少物品/多少条已过期。
+
+    前端在计划页顶部用它显示「价格数据 N 小时前更新（有效期 24h）」，
+    超期就提示重新导价，不改变计算口径。
+    """
+    settings = get_settings()
+    valid_hours = settings.price_valid_hours
+    server = db.get(Server, server_id)
+    if server is None:
+        raise HTTPException(404, "服务器不存在")
+
+    last_batch = db.execute(
+        select(PriceBatch)
+        .where(PriceBatch.server_id == server_id)
+        .order_by(PriceBatch.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    batch_count = (
+        db.execute(
+            select(func.count()).select_from(PriceBatch).where(PriceBatch.server_id == server_id)
+        ).scalar()
+        or 0
+    )
+
+    records = latest_price_records(db, server_id)
+    ages = [a for a in (price_age_hours(at) for _, at in records.values()) if a is not None]
+    last_at = last_batch.created_at if last_batch else (max((at for _, at in records.values() if at), default=None))
+    age = price_age_hours(last_at)
+    return PriceFreshnessOut(
+        server_id=server_id,
+        server_name=server.name,
+        last_import_at=last_at,
+        age_hours=age,
+        batch_count=batch_count,
+        item_count=len(records),
+        stale_items=sum(1 for a in ages if a > valid_hours),
+        oldest_age_hours=max(ages) if ages else None,
+        last_imported_by=last_batch.imported_by if last_batch else None,
+        valid_hours=valid_hours,
+        stale=bool(age is not None and age > valid_hours),
+    )
 
 
 @router.get("", response_model=list[EffectivePriceOut])

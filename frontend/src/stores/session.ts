@@ -85,25 +85,29 @@ export const useSessionStore = defineStore("session", () => {
     persist();
   }
 
-  function toggleConfirmRecipe(id: number) {
+  function toggleConfirmRecipe(id: number, hasCooldown = false) {
     const arr = state.value.confirmedRecipeIds;
     state.value.confirmedRecipeIds = arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id];
     if (!state.value.confirmedRecipeIds.includes(id)) {
       delete state.value.confirmedCounts[String(id)];
     } else if (state.value.confirmedCounts[String(id)] === undefined) {
-      state.value.confirmedCounts[String(id)] = 1; // 默认 1 次
+      // 默认次数分两种：有 CD 的配方一个周期只能做一次 → 1；
+      // 无 CD 的配方不设上限（0 = 不限），让算法自己冲到收益最大的次数
+      state.value.confirmedCounts[String(id)] = hasCooldown ? 1 : 0;
     }
     persist();
   }
 
+  /** 设置确认配方的次数上限；0 / 空 = 不限次 */
   function setConfirmedCount(id: number, count: number) {
-    const n = Math.max(1, Math.round(count) || 1);
+    const n = Math.max(0, Math.round(count) || 0);
     state.value.confirmedCounts[String(id)] = n;
     persist();
   }
 
+  /** 确认配方的次数上限；0 = 不限（非 CD 配方的默认值） */
   function confirmedCountOf(id: number): number {
-    return state.value.confirmedCounts[String(id)] ?? 1;
+    return state.value.confirmedCounts[String(id)] ?? 0;
   }
 
   function setRecipeDisposition(id: number, d: Disposition | "") {

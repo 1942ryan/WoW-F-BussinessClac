@@ -21,7 +21,11 @@
   材料清单 = 右侧滑出抽屉（默认折叠）；`.main` 无 max-width 占满页面
 - 成本列负数 = 赚钱：Money.vue `negAsEarn` prop → 红色「赚」前缀 + 绝对值（不显示负号）
 - 已固化的计算规则（UI 不再暴露，后端默认值）：涨点=客户端公式、成品默认卖拍卖行、设计图按拍卖行价计入、含设计图配方
-- 测试：`cd backend && pytest tests/ -q`（60 个）
+- 测试：`cd backend && pytest tests/ -q`（**65 个**）
+- **物品 tooltip 用官方 API 的 `tooltip` 字段**（逐行游戏原文，`\t`=左右两栏），别自己拼文案、别用 wowhead；
+  抓取 `scraper/scrape_tooltips.py`（约 14 分钟）→ `python -m app.seed --tooltips-only`
+- **硬币图标是矢量 SVG**（原生贴图仅 16×16），顺序＝数字在前图标在后；渐变 id 计数器必须放普通 `<script>` 块
+- **拍卖行手续费 5% 已计入到手价**（`ah_net_of`），`WOWFC_AH_CUT_RATE` 可改；卖店/自用不计
 - **交互铁律：任何改动都要立刻整体重算**（不要等点「计算路线」）。处置/屏蔽配方/屏蔽材料/星标确认/改次数/清空
   全部走 `recalcNow()`；处置还要先 `loadRecipes()` 刷新该行价格。`doCalc()` 内置 calcSeq 序号守卫，
   连续改动只接受最后一次响应（防旧响应覆盖新结果——并发重算的竞态已修）
@@ -78,8 +82,7 @@
   保留「AH 无价 → 按 NPC 卖店价估算收入」回退；只做**标记式**提示：红色「AH无价」标签（.tag.noah），
   用户自己点 ⊘ 屏蔽。锻造 441 配方中 207 个标 AH无价
 - **来源悬停**：`RecipeOut.source_detail`（`\n` 分行）+ `SourceTip.vue`（Teleport+fixed，全表共享一个实例）
-- **金币图标用 wowplayer.cc 的原生 13×13 GIF**（base64 内联进 Money.vue，共 730 字节）；
-  官方图库 JPG 缩到 13px 太糊。`size` prop 仍生效，`image-rendering: pixelated` 防缩放发虚
+- ~~金币图标用 wowplayer.cc 的 GIF~~ **已废弃（v9 起）**：GIF/JPG 缩到 13px 全糊 → 改内联矢量 SVG，见第 27 行
 - **设计图源头数据源**：wowhead **抓不到**（403 / 无 source 字段），官方开放 API 也没有。
   ✅ 权威源 = 官方站 HTML：`/zhuanye/{slug}` 配方表自带「来源」列（1645 条）、
   `/shangren` 商人青睐专题页（313 条营地配方）。抓取脚本 `backend/scraper/scrape_*.py`
@@ -89,3 +92,15 @@
   + 悬停显示 NPC/坐标/机制。⚠️ 营地图纸在拍卖行 100% 无报价，文案不能写「靠掉落」
 - **1080P 折行根因**：成品名后的 `×N/新/附魔/AH无价` 徽章写在 flex 容器**外面** → 被挤第二行。全部移进 `.prod-line` 内
 - 测试 62 个（`cd backend && pytest -q`）；布局验收用 `tools/verify_nowrap.cjs`（五视口）
+
+## v10/v11 追加约定（2026-10-27）
+- **物品 tooltip 的悬停区 = `ItemIcon` 整块**（默认插槽里放名字文字）。写法：
+  `<ItemIcon :icon=".." :name=".." :item-id="x"><span>{{ name }}</span></ItemIcon>`，
+  不要再写成「图标 + 并列的独立 `<span>`」——那样悬停文字不出卡（用户明确要求文字也算）。
+- **云价格有效期默认 24h**（`WOWFC_PRICE_VALID_HOURS`），三处显示：计划页 `.fresh-row`（恒定一行，含无数据态防抖动）、
+  导价页 `.fresh-line`、物品卡 `拍卖行 3银 · 2 天前` + 过期红字。**只提示不改算法**：过期价照常参与计算。
+- **来源标签口径**（官方站「来源」列）：「出没 · 地图列表」= 掉落/开箱类，但官方只精确到地图
+  （无具体 NPC、无掉率），常与「开启 瓶中信/破损的箱子」并列；「掉落 · NPC · 地图 x%」才带掉率。
+  `SourceTip.vue` 负责把这几档翻成人话 + 一句注解，不要直接把官方原文丢给用户。
+- **导价图文教程 `/guide`**：图片放 `frontend/public/guide/step1..6.png`（构建后 `/guide/` 可访问），
+  没图时页面显示「拍什么」占位，所以可以先把页面发出去、图后补。

@@ -367,3 +367,127 @@ def test_item_tooltip_and_ah_cut(client, db_session):
     step = calc["steps"][0]
     assert step["revenue"] == step["crafts"] * 190
     assert step["ah_cut"] == step["crafts"] * 10
+
+
+def test_confirmed_count_zero_means_unlimited(client, db_session):
+    """非 CD 配方的确认次数 0 = 不限次：算法不会只做一次就退出。"""
+    from tests.conftest import add_price, make_item, make_profession, make_recipe, make_server
+
+    server = make_server(db_session, "不限次服")
+    prof = make_profession(db_session, "bs9", "锻造")
+    m1 = make_item(db_session, 2840, "铜锭")
+    p1 = make_item(db_session, 2851, "铜棒")
+    r1 = make_recipe(db_session, prof, p1, "铜棒", [(m1, 1)], 1, 10, 12, 15)
+    add_price(db_session, server, m1, 100)
+    db_session.commit()
+
+    res = client.post(
+        "/api/v1/routes/calc",
+        json={
+            "server_id": server.id,
+            "profession_key": "bs9",
+            "from_skill": 1,
+            "to_skill": 10,
+            "price_mode": "latest",
+            "product_disposition": "sell_ah",
+            "confirmed_recipe_ids": [r1.id],
+            "confirmed_counts": {str(r1.id): 0},
+        },
+    ).json()
+    assert res["steps"][0]["confirmed"] is True
+    assert res["steps"][0]["crafts"] > 5  # 没有被截成 1 次
+
+
+def test_cooldown_recipes_flagged(client, db_session):
+    """有 CD 的配方（月布）在配方列表里带 has_cooldown，用于默认次数 1。"""
+    from tests.conftest import make_item, make_profession, make_recipe, make_server
+
+    server = make_server(db_session, "CD服")
+    prof = make_profession(db_session, "tailor9", "裁缝")
+    m1 = make_item(db_session, 2999, "符文布")
+    cd_item = make_item(db_session, 14342, "月布")
+    normal = make_item(db_session, 2998, "符文布卷")
+    make_recipe(db_session, prof, cd_item, "月布", [(m1, 2)], 250, 260, 270, 280)
+    make_recipe(db_session, prof, normal, "符文布卷", [(m1, 1)], 1, 10, 20, 30)
+    db_session.commit()
+
+    rows = client.get(f"/api/v1/professions/tailor9/recipes?server_id={server.id}").json()
+    flags = {r["product_name"]: r["has_cooldown"] for r in rows}
+    assert flags["月布"] is True
+    assert flags["符文布卷"] is False
+
+
+def test_camp_source_detail_only_selected_faction(client, db_session):
+    """营地图纸的来源浮层只留当前阵营那一段，不再列两个阵营。"""
+    from tests.conftest import make_item, make_profession, make_recipe, make_server
+
+    prof = make_profession(db_session, "blacksmithing", "锻造")
+    alliance = make_server(db_session, "联盟服", faction="alliance")
+    horde = make_server(db_session, "部落服", faction="horde")
+    m1 = make_item(db_session, 2840, "铜锭")
+    prod = make_item(db_session, 4001, "老兵的链甲腰带")
+    plan = make_item(db_session, 251365, "设计图：老兵的链甲腰带")
+    make_recipe(
+        db_session, prof, prod, "老兵的链甲腰带", [(m1, 5)], 45, 50, 55, 60,
+        source_type="design", source_item=plan,
+    )
+    # 图纸 id 命中 data/vendor_recipes.json → 标记为营地配方
+    db_session.execute(
+        __import__("sqlalchemy").text("UPDATE recipes SET vendor_favor = 30")
+    )
+    db_session.commit()
+
+    a = client.get(f"/api/v1/professions/blacksmithing/recipes?server_id={alliance.id}").json()
+    detail_a = a[0]["source_detail"]
+    # 只保留联盟这句，部落那句不再出现
+    assert "艾泽拉斯贸易局" in detail_a
+    assert "杜隆塔尔" not in detail_a
+    assert "提示：" not in detail_a
+    assert detail_a.count("\n") <= 3
+
+    h = client.get(f"/api/v1/professions/blacksmithing/recipes?server_id={horde.id}").json()
+    detail_h = h[0]["source_detail"]
+    assert "杜隆塔尔补给后勤部" in detail_h
+    assert "艾泽拉斯贸易局" not in detail_h
+
+
+def test_price_freshness_and_tooltip_age(client, db_session):
+    """云价格有效期：物品卡带「这条价多久前导的」，/prices/freshness 汇总覆盖与过期条数。"""
+    from datetime import datetime, timedelta
+
+    from app.models import PriceBatch, PriceRecord
+    from tests.conftest import add_price, make_item, make_server
+
+    server = make_server(db_session, "有效期服")
+    a = make_item(db_session, 2840, "铜锭")
+    b = make_item(db_session, 3575, "铁锭")
+    add_price(db_session, server, a, 100)
+    add_price(db_session, server, b, 200)
+    db_session.commit()
+
+    fresh = client.get(f"/api/v1/prices/freshness?server_id={server.id}").json()
+    assert fresh["item_count"] == 2 and fresh["batch_count"] == 2
+    assert fresh["stale_items"] == 0 and fresh["stale"] is False
+    assert fresh["valid_hours"] == 24
+    assert fresh["age_hours"] is not None and fresh["age_hours"] < 0.5
+
+    tip = client.get(f"/api/v1/items/{a.id}?server_id={server.id}").json()
+    assert tip["effective_ah"] == 100
+    assert tip["price_age_hours"] is not None and tip["price_stale"] is False
+
+    # 把批次和流水一起改成 72 小时前 → 整服数据过期、每个物品都过期
+    old = datetime.utcnow() - timedelta(hours=72)
+    for batch in db_session.query(PriceBatch).all():
+        batch.created_at = old
+    for rec in db_session.query(PriceRecord).all():
+        rec.created_at = old
+    db_session.commit()
+
+    stale = client.get(f"/api/v1/prices/freshness?server_id={server.id}").json()
+    assert stale["stale"] is True
+    assert stale["stale_items"] == 2
+    assert 71 < stale["age_hours"] < 73
+
+    tip2 = client.get(f"/api/v1/items/{a.id}?server_id={server.id}").json()
+    assert tip2["price_stale"] is True
+    assert 71 < tip2["price_age_hours"] < 73

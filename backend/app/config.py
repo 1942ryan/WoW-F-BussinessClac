@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     # 拍卖行手续费率：成交后系统抽成，卖家到手 = 成交价 ×(1-费率)。
     # 经典旧世/无限均为 5%；改成 0 即按「不扣手续费」的旧口径计算。
     ah_cut_rate: float = 0.05
+    # 云价格有效期（小时）：超过这个时长的报价会被标成「可能过期」。
+    # 只做提示，不改变计算（老价格仍按最新口径参与，由用户自己判断要不要重新导价）。
+    price_valid_hours: int = 24
 
     @property
     def cors_origin_list(self) -> list[str]:

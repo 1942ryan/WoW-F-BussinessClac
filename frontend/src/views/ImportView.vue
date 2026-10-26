@@ -18,6 +18,21 @@
         <b v-if="session.state.serverFaction !== 'both'">同阵营</b>玩家之后计算时自动使用这些价格
         （联盟与部落价格互相隔离）。
       </p>
+
+      <!-- 价格有效期：最近一次导入时间 + 过期提醒（与计划页同一份数据） -->
+      <div class="fresh-line" :class="{ stale: freshness?.stale }">
+        <template v-if="freshness && freshness.item_count">
+          <span v-if="freshness.stale">⚠ 最近一次导入 {{ ageText(freshness.age_hours) }}，已超过 {{ freshness.valid_hours }} 小时有效期</span>
+          <span v-else>最近一次导入 {{ ageText(freshness.age_hours) }}（有效期 {{ freshness.valid_hours }} 小时）</span>
+          <span class="sep">·</span>
+          <span>覆盖 {{ freshness.item_count }} 个物品</span>
+          <template v-if="freshness.stale_items">
+            <span class="sep">·</span>
+            <span class="warn">{{ freshness.stale_items }} 个物品报价已过期</span>
+          </template>
+        </template>
+        <span v-else>还没有价格数据：导入一份 AUC 导出后，这里会显示本次价格的有效期。</span>
+      </div>
       <div class="flex flex-wrap" style="align-items: flex-start; gap: 14px">
         <div class="grow">
           <textarea v-model="csvText" placeholder='在此粘贴 AUC 导出内容，例如：
@@ -40,6 +55,9 @@
           <button class="btn" style="margin-top: 10px" @click="showTemplate = true">
             导出模板（AUC 关注清单）
           </button>
+          <RouterLink class="btn" style="margin-top: 10px; display: block; text-align: center" to="/guide">
+            不会导价？看图文教程 →
+          </RouterLink>
         </div>
       </div>
 
@@ -79,10 +97,9 @@
         <tbody>
           <tr v-for="p in prices" :key="p.item_id">
             <td>
-              <span class="flex" style="gap: 6px">
-                <ItemIcon :icon="p.icon" :name="p.name" :size="22" :item-id="p.item_id" />
+              <ItemIcon :icon="p.icon" :name="p.name" :size="22" :item-id="p.item_id">
                 <span>{{ p.name }}</span>
-              </span>
+              </ItemIcon>
             </td>
             <td class="num money"><Money :value="p.price" /></td>
             <td class="num">{{ p.record_count }}</td>
@@ -102,7 +119,12 @@
       </div>
       <div v-if="searched" style="margin-top: 10px">
         <div class="flex flex-wrap">
-          <span><b>{{ searched.name }}</b>（ID {{ searched.item_id }}）</span>
+          <span class="flex" style="gap: 6px; align-items: center">
+            <ItemIcon :icon="searched.icon" :name="searched.name" :size="22" :item-id="searched.item_id">
+              <b>{{ searched.name }}</b>
+            </ItemIcon>
+            <span class="muted">（ID {{ searched.item_id }}）</span>
+          </span>
           <span class="muted">NPC 卖店价 <Money :value="searched.vendor_price" /></span>
           <span v-if="searched.effective_ah !== null" class="money">
             当前拍卖有效价 <Money :value="searched.effective_ah" />
@@ -161,7 +183,7 @@ import ItemIcon from "@/components/ItemIcon.vue";
 import Money from "@/components/Money.vue";
 import TemplateExportDialog from "@/components/TemplateExportDialog.vue";
 import { useSessionStore } from "@/stores/session";
-import type { BatchInfo, EffectivePrice, ImportSummary, ItemPrice } from "@/types";
+import type { BatchInfo, EffectivePrice, ImportSummary, ItemPrice, PriceFreshness } from "@/types";
 
 const session = useSessionStore();
 const csvText = ref("");
@@ -171,6 +193,7 @@ const importing = ref(false);
 const summary = ref<ImportSummary | null>(null);
 const showTemplate = ref(false);
 const prices = ref<EffectivePrice[]>([]);
+const freshness = ref<PriceFreshness | null>(null);
 const priceMode = ref(session.state.priceMode);
 const priceQuery = ref("");
 const batches = ref<BatchInfo[]>([]);
@@ -182,8 +205,26 @@ onMounted(() => {
   if (session.state.serverId) {
     loadPrices();
     loadBatches();
+    loadFreshness();
   }
 });
+
+/** 距今多久：<1 小时按分钟，<48 小时按小时，再长按天。 */
+function ageText(hours: number | null | undefined): string {
+  if (hours === null || hours === undefined) return "时间未知";
+  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))} 分钟前`;
+  if (hours < 48) return `${Math.round(hours)} 小时前`;
+  return `${Math.round(hours / 24)} 天前`;
+}
+
+async function loadFreshness() {
+  if (!session.state.serverId) return;
+  try {
+    freshness.value = await api.priceFreshness(session.state.serverId);
+  } catch {
+    freshness.value = null;
+  }
+}
 
 function onFile(e: Event) {
   const input = e.target as HTMLInputElement;
@@ -201,7 +242,7 @@ async function onImport() {
     }
     csvText.value = "";
     file.value = null;
-    await Promise.all([loadPrices(), loadBatches()]);
+    await Promise.all([loadPrices(), loadBatches(), loadFreshness()]);
   } catch (e: unknown) {
     const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
     alert(`导入失败：${msg ?? String(e)}`);
@@ -243,6 +284,29 @@ async function onManualPrice() {
   );
   manualPrice.value = null;
   searched.value = await api.itemPrice(searched.value.item_id, session.state.serverId);
-  await Promise.all([loadPrices(), loadBatches()]);
+  await Promise.all([loadPrices(), loadBatches(), loadFreshness()]);
 }
 </script>
+
+<style scoped>
+/* 价格有效期一行（与计划页同款口径） */
+.fresh-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(128, 128, 128, 0.08);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted, #7a7264);
+}
+.fresh-line.stale {
+  background: rgba(192, 57, 43, 0.09);
+  color: #a03030;
+}
+.fresh-line .sep { color: rgba(128, 128, 128, 0.55); }
+.fresh-line .warn { color: #a03030; }
+</style>

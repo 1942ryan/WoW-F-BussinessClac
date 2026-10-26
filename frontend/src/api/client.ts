@@ -8,6 +8,7 @@ import type {
   ImportSummary,
   ItemDetail,
   ItemPrice,
+  PriceFreshness,
   Profession,
   Recipe,
   RouteDetail,
@@ -78,6 +79,10 @@ export const api = {
       .then((r) => r.data),
   listBatches: (serverId: number) =>
     http.get<BatchInfo[]>("/prices/batches", { params: { server_id: serverId } }).then((r) => r.data),
+  priceFreshness: (serverId: number) =>
+    http
+      .get<PriceFreshness>("/prices/freshness", { params: { server_id: serverId } })
+      .then((r) => r.data),
   effectivePrices: (serverId: number, mode: string, q?: string) =>
     http
       .get<EffectivePrice[]>("/prices", { params: { server_id: serverId, mode, q, limit: 500 } })

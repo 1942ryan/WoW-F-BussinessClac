@@ -96,6 +96,67 @@ def ah_net_of(gross: int, rate: float) -> int:
     return gross - ah_cut_of(gross, rate)
 
 
+def pick_revenue(
+    ah_gross: int | None, npc_unit: int | None, qty: int, rate: float
+) -> tuple[int, int, str, bool]:
+    """成品收入口径：拍卖行到手价与 NPC 卖店价取高。
+
+    用户口径（2026-10）：
+    - 拍卖行查不到价 → 直接用卖店价（冷门配方的保底，不是亏光）；
+    - 拍卖行有价但扣完 5% 手续费还没卖店高 → 自动按卖店价计。
+
+    ah_gross 是这一批的总成交额（单次成交价 × 产出数量），npc_unit 是单份卖店价。
+    返回 (收入铜, 拍卖行抽成铜, "ah"|"npc", 是否「AH 有价但不如卖店」)。
+    """
+    npc_total = max(0, int(npc_unit or 0)) * qty
+    if ah_gross is None:
+        return npc_total, 0, "npc", False
+    net = ah_net_of(ah_gross, rate)
+    if net >= npc_total:
+        return net, ah_gross - net, "ah", False
+    return npc_total, 0, "npc", True
+
+
+def latest_price_records(
+    db: Session, server_id: int
+) -> dict[int, tuple[int, datetime | None]]:
+    """某服务器下每个物品的**最新一条**流水：(单价铜, 该条流水的导入时间)。
+
+    与 effective_prices(mode="latest") 同一套取数口径（含联盟/部落隔离），
+    额外带出时间戳，供「云价格多久前更新 / 是否过期」判断使用。
+    """
+    server = db.get(Server, server_id)
+    faction = server.faction if server else FACTION_BOTH
+
+    latest_ids_sq = select(
+        PriceRecord.item_id.label("item_id"),
+        func.max(PriceRecord.id).label("mid"),
+    ).where(PriceRecord.server_id == server_id)
+    if faction != FACTION_BOTH:
+        latest_ids_sq = latest_ids_sq.where(
+            (PriceRecord.faction == faction) | (PriceRecord.faction == FACTION_BOTH)
+        )
+    latest_ids_sq = latest_ids_sq.group_by(PriceRecord.item_id).subquery()
+    rows = db.execute(
+        select(PriceRecord.item_id, PriceRecord.unit_price, PriceRecord.created_at)
+        .join(
+            latest_ids_sq,
+            (PriceRecord.item_id == latest_ids_sq.c.item_id)
+            & (PriceRecord.id == latest_ids_sq.c.mid),
+        )
+        .where(PriceRecord.server_id == server_id)
+    ).all()
+    return {item_id: (price, created_at) for item_id, price, created_at in rows}
+
+
+def price_age_hours(created_at: datetime | None, now: datetime | None = None) -> float | None:
+    """流水时间 → 距今小时数（负数按 0 处理，时钟漂移/时区差异不报错）。"""
+    if created_at is None:
+        return None
+    delta = (now or datetime.utcnow()) - created_at
+    return round(max(0.0, delta.total_seconds() / 3600.0), 2)
+
+
 def effective_prices(
     db: Session,
     server_id: int,
@@ -119,30 +180,7 @@ def effective_prices(
         return stmt
 
     if mode == "latest":
-        # 可移植写法：每物品取最大 id（id 自增≈时间顺序）对应的流水
-        latest_ids_sq = (
-            select(
-                PriceRecord.item_id.label("item_id"),
-                func.max(PriceRecord.id).label("mid"),
-            )
-            .where(PriceRecord.server_id == server_id)
-            .group_by(PriceRecord.item_id)
-        )
-        if faction != FACTION_BOTH:
-            latest_ids_sq = latest_ids_sq.where(
-                (PriceRecord.faction == faction) | (PriceRecord.faction == FACTION_BOTH)
-            )
-        latest_ids_sq = latest_ids_sq.subquery()
-        rows = db.execute(
-            select(PriceRecord.item_id, PriceRecord.unit_price)
-            .join(
-                latest_ids_sq,
-                (PriceRecord.item_id == latest_ids_sq.c.item_id)
-                & (PriceRecord.id == latest_ids_sq.c.mid),
-            )
-            .where(PriceRecord.server_id == server_id)
-        ).all()
-        return {item_id: price for item_id, price in rows}
+        return {item_id: price for item_id, (price, _) in latest_price_records(db, server_id).items()}
 
     # median：取全部（或窗口内）流水按物品算中位数
     stmt = select(PriceRecord.item_id, PriceRecord.unit_price, PriceRecord.created_at)
@@ -192,6 +230,10 @@ class RecipeView:
     cost_per_point: float | None = None
     missing: list[str] = field(default_factory=list)  # 缺价格的材料名
     revenue_fallback: bool = False  # 拍卖行无价、按卖店价估算（仅记录，不对外提示）
+    # 收入实际取自哪儿：ah=拍卖行到手价 / npc=卖店价（无 AH 价，或 AH 到手价还不如卖店）
+    revenue_source: str = "ah"
+    # 拍卖行有价但到手价低于卖店价 → 自动改按卖店价计（用户口径：绝不比直接卖店亏）
+    revenue_npc_better: bool = False
     disposition: str = "sell_ah"  # 本配方产物处置（全局或单配方覆盖）
     # 设计图配方：图纸一次性成本（学会即消耗，不随制作次数增加）
     design_cost: int = 0
@@ -412,23 +454,21 @@ def _load_recipes(
         disposition = disp_overrides.get(r.id) or params.product_disposition
         view.disposition = disposition
         revenue = 0
-        if r.product_item_id:
+        if r.product_item_id and disposition != "self_use":
+            prod_item = items[r.product_item_id]
             if disposition == "sell_ah":
+                # 拍卖行成交后系统抽 5%，按「到手价」计收入；再与卖店价比高取优
                 ah = prices.get(r.product_item_id)
-                if ah is not None:
-                    # 拍卖行成交后系统抽 5%，按「到手价」计收入（这才是真实回款）
-                    gross = ah * r.product_qty
-                    view.ah_cut = ah_cut_of(gross, ah_cut_rate)
-                    revenue = gross - view.ah_cut
-                else:
-                    # 回退卖店价：NPC 收购不抽手续费
-                    vp = items[r.product_item_id].vendor_price
-                    revenue = vp * r.product_qty
-                    view.revenue_fallback = vp > 0
-            elif disposition == "sell_npc":
-                vp = items[r.product_item_id].vendor_price
-                revenue = vp * r.product_qty
-            # self_use → 0
+                gross = ah * r.product_qty if ah is not None else None
+                revenue, view.ah_cut, view.revenue_source, view.revenue_npc_better = (
+                    pick_revenue(gross, prod_item.vendor_price, r.product_qty, ah_cut_rate)
+                )
+                view.revenue_fallback = view.revenue_source == "npc" and gross is None
+            else:  # sell_npc
+                revenue = (prod_item.vendor_price or 0) * r.product_qty
+                view.revenue_source = "npc"
+        else:
+            view.revenue_source = "none"
         view.revenue = revenue
         view.net = mat_cost - revenue
 
@@ -469,11 +509,12 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
     }
 
     # 确认配法的剩余制作次数（浮点：公式模式下期望次数可能是小数）
+    # 0 / 负数 = 不限次（非 CD 配方的默认值）：确认优先，但不设上限，让算法自行
+    # 冲到收益最大的次数；正数 = 上限（CD 配方默认 1）。
     remaining: dict[int, float] = {}
     for rid in params.confirmed_recipe_ids:
         cnt = (params.confirmed_counts or {}).get(rid, 1)
-        if cnt >= 1:  # 次数 ≤0 视为未确认（不优先、不限额）
-            remaining[rid] = float(cnt)
+        remaining[rid] = float(cnt) if cnt >= 1 else float("inf")
     exhausted: set[int] = set()  # 确认次数已用完（按 CD 限制退出计算）
     skip: set[int] = set()  # 当前区间内不可行（几率 0 等）的配方
 
@@ -614,6 +655,10 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
                 "vendor_favor": step_vendor_favor,
                 # 成品 AH 无价 → 本步收入按卖店价估算（冷门信号，UI 提示用户可自行屏蔽）
                 "revenue_fallback": best.revenue_fallback,
+                # 收入实际口径：ah=拍卖行到手价 / npc=卖店价 / none=自用
+                "revenue_source": best.revenue_source,
+                # 拍卖行有价但到手价不如卖店 → 已自动按卖店价计
+                "revenue_npc_better": best.revenue_npc_better,
             }
         )
         # 拍卖行无价时已回退按 NPC 卖店价估算收入（见 _views 构造处）；物品数量大、
@@ -667,6 +712,11 @@ def calc_route(db: Session, params: CalcIn, settings) -> dict:
                 last["design_name"] = st["design_name"]
             if st.get("vendor_favor"):
                 last["vendor_favor"] = st["vendor_favor"]
+            # 合并段内只要出现「已按卖店价」的段落，整段沿用该提示
+            if st.get("revenue_npc_better"):
+                last["revenue_npc_better"] = True
+            if st.get("revenue_fallback"):
+                last["revenue_fallback"] = True
         else:
             merged_steps.append(dict(st))
     steps = merged_steps

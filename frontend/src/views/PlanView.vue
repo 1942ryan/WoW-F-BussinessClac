@@ -44,6 +44,27 @@
         <button class="btn small" @click="onClearOverrides">清空全部屏蔽/确认</button>
       </div>
 
+      <!-- 云价格有效期：恒定一行，不随操作出现/消失（防抖动） -->
+      <div class="fresh-row" :class="{ stale: freshness?.stale, empty: !freshness?.item_count }">
+        <template v-if="!freshness || !freshness.item_count">
+          <span class="fk">价格数据</span>
+          <span>本服还没有导入过拍卖行价格，当前只能按 NPC 卖店价估算。</span>
+          <RouterLink class="flink" to="/import">去导价 →</RouterLink>
+        </template>
+        <template v-else>
+          <span class="fk">价格数据</span>
+          <span v-if="freshness.stale">⚠ 最近一次导入是 <b>{{ ageText(freshness.age_hours) }}</b>，已超过 {{ freshness.valid_hours }} 小时有效期</span>
+          <span v-else>最近一次导入 <b>{{ ageText(freshness.age_hours) }}</b>，有效期 {{ freshness.valid_hours }} 小时</span>
+          <span class="fsep">·</span>
+          <span>覆盖 {{ freshness.item_count }} 个物品</span>
+          <template v-if="freshness.stale_items">
+            <span class="fsep">·</span>
+            <span class="fwarn">其中 {{ freshness.stale_items }} 个物品的报价已过期</span>
+          </template>
+          <RouterLink class="flink" to="/import">重新导价 →</RouterLink>
+        </template>
+      </div>
+
       <p class="muted rules-note">
         计算规则已固定：涨点按 WoW 客户端公式（橙档 100%，黄/绿档 =(灰档−当前)/(灰档−黄档) 递减）；
         成品默认卖拍卖行，可在下方配方列表逐条改「卖店」；设计图配方自动计入，图纸按拍卖行价一次性计入成本。
@@ -82,10 +103,13 @@
                 <td class="prod-cell">
                   <div class="prod-line">
                     <ItemIcon :icon="r.product_icon" :name="r.product_name" :size="24"
-                              :item-id="r.product_item_id" />
-                    <span class="prod-name">{{ r.product_name }}</span>
+                              :item-id="r.product_item_id">
+                      <span class="prod-name">{{ r.product_name }}</span>
+                    </ItemIcon>
                     <span v-if="r.product_qty > 1" class="muted">×{{ r.product_qty }}</span>
                     <span v-if="r.is_new" class="tag new">新</span>
+                    <span v-if="r.has_cooldown" class="tag cd"
+                          title="有冷却时间：一个 CD 周期只能做一次，确认采用时默认次数为 1">CD</span>
                     <span v-if="r.product_kind === 'enchant'" class="tag trainer">附魔</span>
                     <span v-if="r.revenue_fallback" class="tag noah"
                           title="拍卖行查不到这个成品的价格，收入已按 NPC 卖店价估算（通常是冷门配方）。不想做就点 ⊘ 屏蔽它">AH无价</span>
@@ -93,8 +117,9 @@
                 </td>
                 <td class="wrap">
                   <div v-for="m in r.materials" :key="m.item_id" class="flex" style="gap: 4px">
-                    <ItemIcon :icon="m.icon" :name="m.name" :size="20" :item-id="m.item_id" />
-                    <span>{{ m.name }} ×{{ m.qty }}</span>
+                    <ItemIcon :icon="m.icon" :name="m.name" :size="20" :item-id="m.item_id">
+                      <span>{{ m.name }} ×{{ m.qty }}</span>
+                    </ItemIcon>
                     <span v-if="m.unit_price !== null" class="money muted">
                       <Money :value="m.unit_price" :size="11" />
                     </span>
@@ -117,16 +142,21 @@
                     </button>
                     <button class="price-btn" :class="{ active: curDisp(r) === 'sell_ah' }"
                             @click="onDispChange(r.id, 'sell_ah')"
-                            title="卖给拍卖行（价 = 当前有效拍卖价）">
+                            title="卖给拍卖行（价 = 当前有效拍卖价扣 5% 手续费的到手价；到手低于卖店时按卖店计）">
                       <span class="pb-k">拍卖行</span>
-                      <Money v-if="r.product_ah_price !== null" :value="r.product_ah_price" :size="12" />
+                      <Money v-if="r.product_ah_price !== null"
+                             :value="r.product_ah_net ?? r.product_ah_price" :size="12" />
                       <span v-else class="muted">无价</span>
                     </button>
+                    <span v-if="r.revenue_npc_better" class="tag npc"
+                          title="拍卖行有价，但扣完 5% 手续费到手价低于卖店价，收入已按卖店价计算">
+                      按卖店
+                    </span>
                     <button v-if="session.recipeDispositionOf(r.id)" class="price-btn ghost"
                             @click="onDispChange(r.id, '')" title="清除本配方覆盖，回到跟随全局（卖拍卖行）">↺</button>
                   </div>
                 </td>
-                <td class="skill-bands" title="技能档（橙/黄/绿/灰，变灰后不再涨点）">
+                <td class="skill-bands">
                   <span class="sb sb-o">{{ r.skill_orange }}</span>
                   <span class="sb sb-y">{{ r.skill_yellow }}</span>
                   <span class="sb sb-g">{{ r.skill_green }}</span>
@@ -137,10 +167,7 @@
                     <span v-if="r.source_type === 'trainer'" class="tag trainer">训练师</span>
                     <span v-else-if="r.source_type === 'design'" class="tag design">设计图</span>
                     <span v-else class="tag trainer">{{ r.source_type }}</span>
-                    <span v-if="r.vendor_favor" class="tag camp"
-                          :title="'贸易营地专属图纸，需 ' + r.vendor_favor + ' 点商人青睐（不是声望）'">
-                      营地 {{ r.vendor_favor }}
-                    </span>
+                    <span v-if="r.vendor_favor" class="tag camp">营地 {{ r.vendor_favor }}</span>
                   </span>
                 </td>
                 <td class="num">
@@ -158,18 +185,23 @@
                   </button>
                   <button class="btn small icon-btn"
                           :class="{ active: session.state.confirmedRecipeIds.includes(r.id) }"
-                          @click="onConfirmRecipe(r.id)"
+                          @click="onConfirmRecipe(r)"
                           :title="session.state.confirmedRecipeIds.includes(r.id)
-                            ? '已确认：后面的数字是制作次数上限（不是目标），点击取消'
-                            : '确认采用：当前技能下优先做这个配方，次数是上限（默认 1 次）'">
+                            ? '已确认：优先做这个配方。后面的数字是次数上限，留空=不限（点击取消）'
+                            : (r.has_cooldown
+                                ? '确认采用：有 CD 的配方默认只做 1 次'
+                                : '确认采用：默认不限次数，优先做它直到没有更划算的配方')">
                     <span class="ico star">{{ session.state.confirmedRecipeIds.includes(r.id) ? "★" : "☆" }}</span>
                     <span v-if="session.state.confirmedRecipeIds.includes(r.id)" class="max-tag">最大</span>
                   </button>
                   <span v-if="session.state.confirmedRecipeIds.includes(r.id)" class="cnt-wrap">
-                    <input type="number" min="1" max="999" class="cnt-input"
-                           :value="session.confirmedCountOf(r.id)"
+                    <input type="number" min="0" max="999" class="cnt-input"
+                           :value="session.confirmedCountOf(r.id) || ''"
+                           placeholder="不限"
                            @change="onCountChange(r.id, $event)"
-                           title="制作次数上限（长 CD 配方按周期内可做次数填）" />
+                           :title="r.has_cooldown
+                             ? '有 CD：一个周期只能做几次就填几次（默认 1）'
+                             : '次数上限，留空 = 不限（由算法自己冲到收益最大的次数）'" />
                   </span>
                 </td>
               </tr>
@@ -202,7 +234,7 @@
           <template v-if="result.totals.ah_cut > 0">
             （本路线共 <Money :value="result.totals.ah_cut" :size="11" />）
           </template>
-          ；卖店 / 自用不计手续费。
+          ；查不到拍卖价、或到手价低于卖店价时，自动按<strong>卖店价</strong>计。
         </div>
 
         <!-- 材料采购清单入口（点开为右侧抽屉） -->
@@ -231,15 +263,16 @@
               <tr v-for="(s, i) in result.steps" :key="i">
                 <td class="money">{{ Math.round(s.skill_from) }} → {{ Math.round(s.skill_to) }}</td>
                 <td>
-                  <span class="flex" style="gap: 6px">
-                    <ItemIcon :icon="s.product_icon" :name="s.recipe_name" :size="24"
-                              :item-id="s.product_item_id" />
+                  <ItemIcon :icon="s.product_icon" :name="s.recipe_name" :size="24"
+                            :item-id="s.product_item_id">
                     <span>{{ s.recipe_name }}</span>
-                  </span>
+                  </ItemIcon>
                   <span v-if="s.confirmed" class="tag confirmed">确认采用</span>
                   <span v-if="s.disposition" class="tag disp">{{ dispLabel(s.disposition) }}</span>
                   <span v-if="s.revenue_fallback" class="tag noah"
                         title="拍卖行查不到这个成品的价格，本步收入按 NPC 卖店价估算。冷门配方建议在左侧 ⊘ 屏蔽后重算">AH无价</span>
+                  <span v-else-if="s.revenue_npc_better" class="tag npc"
+                        title="本步成品的拍卖行到手价低于卖店价，收入已按卖店价计算">按卖店</span>
                   <span v-if="s.design_cost" class="tag design" :title="'设计图：' + (s.design_name ?? '')">
                     图纸 <Money :value="s.design_cost" :size="11" />
                   </span>
@@ -300,10 +333,9 @@
             <tbody>
               <tr v-for="m in result!.materials" :key="m.item_id">
                 <td>
-                  <span class="flex" style="gap: 6px">
-                    <ItemIcon :icon="m.icon" :name="m.name" :size="22" :item-id="m.item_id" />
+                  <ItemIcon :icon="m.icon" :name="m.name" :size="22" :item-id="m.item_id">
                     <span>{{ m.name }}</span>
-                  </span>
+                  </ItemIcon>
                   <span v-if="m.kind === 'design'" class="tag design">设计图</span>
                 </td>
                 <td class="num">{{ Math.round(m.qty) }}</td>
@@ -344,6 +376,24 @@
       </div>
     </div>
 
+    <!-- 保存成功 → 直接给一条可复制的链接（别人点开就是这条路线） -->
+    <div v-if="shareLink" class="save-mask" @click.self="shareLink = ''">
+      <div class="save-dialog panel">
+        <h2>路线已保存</h2>
+        <p class="muted" style="margin: 0 0 10px">
+          把这条链接发给别人，点开就能直接看到整条路线（每一步做什么、做几次、花多少）。
+        </p>
+        <div class="flex" style="gap: 8px">
+          <input ref="linkInput" type="text" :value="shareLink" readonly style="flex: 1; min-width: 0" />
+          <button class="btn primary" @click="copyShareLink">{{ copied ? "已复制 ✓" : "复制链接" }}</button>
+        </div>
+        <div class="flex" style="margin-top: 12px; gap: 8px">
+          <a class="btn" :href="shareLink" target="_blank" rel="noopener">打开看看</a>
+          <button class="btn" @click="shareLink = ''">关闭</button>
+        </div>
+      </div>
+    </div>
+
     <PriceImportDialog v-if="showImport" :server-id="session.state.serverId!"
                        @close="showImport = false" @imported="onImported" />
     <TemplateExportDialog v-if="showTemplate" :profession-key="session.state.professionKey"
@@ -368,12 +418,14 @@ import ShoppingExportDialog from "@/components/ShoppingExportDialog.vue";
 import SourceTip from "@/components/SourceTip.vue";
 import TemplateExportDialog from "@/components/TemplateExportDialog.vue";
 import { useSessionStore } from "@/stores/session";
-import type { CalcResult, Disposition, Profession, Recipe } from "@/types";
+import type { CalcResult, Disposition, PriceFreshness, Profession, Recipe } from "@/types";
 
 const session = useSessionStore();
 const professions = ref<Profession[]>([]);
 const recipes = ref<Recipe[]>([]);
 const result = ref<CalcResult | null>(null);
+/** 云价格新鲜度：显示在本服哪次导价、有效期多久、多少条已过期 */
+const freshness = ref<PriceFreshness | null>(null);
 const loading = ref(false);
 const recipeQuery = ref("");
 const onlyUsed = ref(false);
@@ -391,6 +443,9 @@ const saveTitle = ref("");
 const saveAuthor = ref("");
 const saveNotes = ref("");
 const savePublic = ref(true);
+/** 保存成功后生成的分享链接（弹窗展示 + 一键复制） */
+const shareLink = ref("");
+const copied = ref(false);
 /** 来源列悬停浮层（共享一个实例，避免 400+ 行各建一个） */
 const srcTip = ref<{ text: string; anchor: HTMLElement } | null>(null);
 
@@ -416,7 +471,26 @@ onMounted(async () => {
   if (session.state.serverId && session.state.professionKey) {
     await loadRecipes();
   }
+  await loadFreshness();
 });
+
+/** 云价格有效期（本服最近一次导入时间 / 过期条数）。 */
+async function loadFreshness() {
+  if (!session.state.serverId) return;
+  try {
+    freshness.value = await api.priceFreshness(session.state.serverId);
+  } catch {
+    freshness.value = null;
+  }
+}
+
+/** 距今多久：<1 小时按分钟，<48 小时按小时，再长按天。 */
+function ageText(hours: number | null | undefined): string {
+  if (hours === null || hours === undefined) return "从未导入";
+  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))} 分钟前`;
+  if (hours < 48) return `${Math.round(hours)} 小时前`;
+  return `${Math.round(hours / 24)} 天前`;
+}
 
 async function loadRecipes() {
   if (!session.state.serverId || !session.state.professionKey) return;
@@ -485,14 +559,15 @@ function onBlockRecipe(id: number) {
   recalcNow();
 }
 
-function onConfirmRecipe(id: number) {
-  session.toggleConfirmRecipe(id);
+function onConfirmRecipe(r: Recipe) {
+  session.toggleConfirmRecipe(r.id, !!r.has_cooldown);
   recalcNow();
 }
 
 function onCountChange(id: number, e: Event) {
-  const v = Number((e.target as HTMLInputElement).value);
-  session.setConfirmedCount(id, Number.isFinite(v) ? v : 1);
+  const raw = (e.target as HTMLInputElement).value.trim();
+  const v = raw === "" ? 0 : Number(raw);
+  session.setConfirmedCount(id, Number.isFinite(v) ? v : 0); // 0 = 不限次
   recalcNow();
 }
 
@@ -518,7 +593,7 @@ async function runCalc() {
 /** 价格导入完成后：刷新配方价格，已有计算结果时自动重算。 */
 async function onImported() {
   showImport.value = false;
-  await loadRecipes();
+  await Promise.all([loadRecipes(), loadFreshness()]);
   await recalcNow();
 }
 
@@ -537,7 +612,27 @@ async function onConfirmSave() {
     is_public: savePublic.value,
   });
   showSave.value = false;
-  alert(`已保存！分享码：${detail.share_code}`);
+  shareLink.value = `${location.origin}/r/${detail.share_code}`;
+  copied.value = false;
+}
+
+/** 复制分享链接：优先 Clipboard API，非安全上下文退回隐藏 textarea + execCommand。 */
+async function copyShareLink() {
+  const text = shareLink.value;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+  }
+  copied.value = true;
+  window.setTimeout(() => (copied.value = false), 1800);
 }
 </script>
 
@@ -576,6 +671,46 @@ async function onConfirmSave() {
   align-items: center;
 }
 .param-row + .param-row { margin-top: 10px; }
+/* 云价格有效期一行：恒定存在（含空数据态），避免切换时上下抖动 */
+.fresh-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(128, 128, 128, 0.08);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted, #7a7264);
+}
+.fresh-row.stale {
+  background: rgba(192, 57, 43, 0.09);
+  color: #a03030;
+}
+.fresh-row .fk {
+  font-weight: 600;
+  color: var(--text, #3a3327);
+}
+.fresh-row.stale .fk {
+  color: #a03030;
+}
+.fresh-row b {
+  color: var(--text, #3a3327);
+}
+.fresh-row.stale b {
+  color: #a03030;
+}
+.fresh-row .fsep { color: rgba(128, 128, 128, 0.55); }
+.fresh-row .fwarn { color: #a03030; }
+.fresh-row .flink {
+  margin-left: auto;
+  color: #8a6100;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.fresh-row .flink:hover { text-decoration: underline; }
 .rules-note {
   margin: 10px 0 0;
   font-size: 12px;

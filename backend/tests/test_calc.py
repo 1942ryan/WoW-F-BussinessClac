@@ -18,6 +18,7 @@ from app.services.calc import (
     effective_prices,
     fmt_copper,
     is_limited_vendor,
+    pick_revenue,
 )
 from tests.conftest import add_price, make_item, make_material_source, make_profession, make_recipe, make_server
 
@@ -635,3 +636,51 @@ class TestAuctionCut:
         )
         assert result["totals"]["ah_cut"] == 0
         assert all(s["ah_cut"] == 0 for s in result["steps"])
+
+
+class TestRevenueVsNpc:
+    """收益口径：拍卖行到手价与卖店价取高（用户 2026-10 口径）。"""
+
+    def test_pick_revenue_rules(self):
+        # 拍卖行无价 → 用卖店价（不是 0）
+        assert pick_revenue(None, 500, 1, 0.05) == (500, 0, "npc", False)
+        # 到手价高于卖店 → 用拍卖行，并记录抽成
+        rev, cut, src, npc_better = pick_revenue(1000, 500, 1, 0.05)
+        assert (rev, cut, src, npc_better) == (950, 50, "ah", False)
+        # 到手价 950 < 卖店 960 → 自动按卖店
+        rev, cut, src, npc_better = pick_revenue(1000, 960, 1, 0.05)
+        assert (rev, cut, src, npc_better) == (960, 0, "npc", True)
+        # 多份产出一起比（ah_gross 是这一批的总成交额，npc 是单份卖店价）
+        rev, cut, src, _ = pick_revenue(3000, 400, 3, 0.05)
+        assert rev == 2850 and cut == 150 and src == "ah"  # 3000-150=2850 > 3×400
+        # 两种都没有 → 0
+        assert pick_revenue(None, 0, 1, 0.05) == (0, 0, "npc", False)
+
+    def test_ah_below_vendor_switches_to_npc(self, db_session):
+        server = make_server(db_session, "取高服")
+        prof = make_profession(db_session, "bs2", "锻造")
+        m1 = make_item(db_session, 2840, "铜锭")
+        p1 = make_item(db_session, 2851, "铜棒", vendor_price=960)
+        make_recipe(db_session, prof, p1, "铜棒", [(m1, 1)], 1, 10, 12, 15)
+        add_price(db_session, server, m1, 100)
+        add_price(db_session, server, p1, 1000)  # 到手 950 < 卖店 960
+        db_session.commit()
+
+        res = calc_route(
+            db_session,
+            CalcIn(
+                server_id=server.id,
+                profession_key="bs2",
+                from_skill=1,
+                to_skill=10,
+                price_mode="latest",
+                product_disposition="sell_ah",
+            ),
+            get_settings(),
+        )
+        step = res["steps"][0]
+        assert step["revenue_source"] == "npc"
+        assert step["revenue_npc_better"] is True
+        assert step["ah_cut"] == 0
+        # 每次收入 960（卖店），材料 100 → 每份净 100-960 = -860
+        assert step["net"] == pytest.approx((100 - 960) * step["crafts"])

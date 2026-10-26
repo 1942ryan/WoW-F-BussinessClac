@@ -23,6 +23,11 @@ export interface ItemDetail {
   vendor_price: number;
   effective_ah: number | null;
   record_count: number;
+  /** 这条拍卖价是哪次导入的（ISO 时间）、距今几小时、是否已超有效期 */
+  price_updated_at?: string | null;
+  price_age_hours?: number | null;
+  price_stale?: boolean;
+  price_valid_hours?: number;
   /** 游戏内 tooltip 全文（逐行）：绑定/部位/护甲值/属性/装备效果/售价 */
   tooltip: string[];
 }
@@ -71,8 +76,14 @@ export interface Recipe {
   /** 产物双价格（单次产出，铜）：卖店价 / 拍卖行有效价（无流水为 null） */
   product_npc_price: number | null;
   product_ah_price: number | null;
+  /** 拍卖行到手价（已扣手续费，单次产出） */
+  product_ah_net?: number | null;
   /** 成品拍卖行查不到价格 → 收入按卖店价估算（冷门信号，可手动屏蔽） */
   revenue_fallback: boolean;
+  /** 拍卖行有价但到手价不如卖店 → 收入已自动按卖店价计 */
+  revenue_npc_better?: boolean;
+  /** 有冷却时间（CD）：确认采用时默认次数 1，其余默认不限 */
+  has_cooldown?: boolean;
   /** 来源详情（悬停展示，\n 分行）：训练师可学等级 / 设计图名与拍卖行·卖店价 */
   source_detail?: string | null;
   /** 贸易营地专属图纸所需的「商人青睐」点数（非声望）；null = 不是营地配方 */
@@ -121,6 +132,21 @@ export interface EffectivePrice {
   last_at: string | null;
 }
 
+/** 云价格新鲜度：本服最近一次导入时间 + 过期物品数（有效期默认 24 小时）。 */
+export interface PriceFreshness {
+  server_id: number;
+  server_name: string | null;
+  last_import_at: string | null;
+  age_hours: number | null;
+  batch_count: number;
+  item_count: number;
+  stale_items: number;
+  oldest_age_hours: number | null;
+  last_imported_by: string | null;
+  valid_hours: number;
+  stale: boolean;
+}
+
 export interface ItemPrice {
   item_id: number;
   name: string;
@@ -157,6 +183,10 @@ export interface CalcStep {
   design_name: string | null;
   /** 成品拍卖行无价 → 本步收入按卖店价估算 */
   revenue_fallback?: boolean;
+  /** 收入口径：ah=拍卖行到手价 / npc=卖店价 / none=自用 */
+  revenue_source?: "ah" | "npc" | "none";
+  /** 拍卖行有价但到手价不如卖店 → 本步已按卖店价计 */
+  revenue_npc_better?: boolean;
   /** 本步图纸来自贸易营地，需「商人青睐」点数（非声望） */
   vendor_favor?: number;
 }

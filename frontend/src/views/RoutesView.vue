@@ -22,7 +22,9 @@
       </thead>
       <tbody>
         <tr v-for="r in routes" :key="r.id">
-          <td><b>{{ r.title }}</b></td>
+          <td>
+            <RouterLink :to="`/r/${r.share_code}`" title="打开这条路线的分享链接"><b>{{ r.title }}</b></RouterLink>
+          </td>
           <td>{{ r.profession_name }}</td>
           <td>
             <span class="flex" style="gap: 4px">
@@ -58,12 +60,20 @@
       <div class="summary-cards">
         <div class="card"><div class="k">总制作</div><div class="v">{{ Math.round(detail.totals.crafts) }}</div></div>
         <div class="card"><div class="k">花费</div><div class="v"><Money :value="detail.totals.net" :size="14" neg-as-earn /></div></div>
-        <div class="card"><div class="k">分享码</div><div class="v" style="font-size: 14px">{{ detail.share_code }}</div></div>
+        <div class="card">
+          <div class="k">分享链接</div>
+          <div class="v" style="font-size: 12px">
+            <button class="btn small" @click="copyLink(detail.share_code)">
+              {{ copied === detail.share_code ? "已复制 ✓" : "复制链接" }}
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- 采用按钮放在结果顶部，避免长清单把按钮挤到页面外 -->
       <div class="flex flex-wrap" style="margin: 4px 0 10px; gap: 8px">
         <button class="btn primary" @click="onAdopt">采用此路线（按我的价格重算）</button>
+        <RouterLink class="btn" :to="`/r/${detail.share_code}`">打开分享页</RouterLink>
         <button class="btn" @click="detail = null">关闭</button>
       </div>
       <div v-if="recalc" class="alert info" style="margin-top: 0">
@@ -82,11 +92,10 @@
             <tr v-for="(s, i) in detail.steps" :key="i">
               <td class="money">{{ Math.round(s.skill_from) }} → {{ Math.round(s.skill_to) }}</td>
               <td>
-                <span class="flex" style="gap: 6px">
-                  <ItemIcon :icon="s.product_icon" :name="s.recipe_name" :size="22"
-                            :item-id="s.product_item_id" />
+                <ItemIcon :icon="s.product_icon" :name="s.recipe_name" :size="22"
+                          :item-id="s.product_item_id">
                   <span>{{ s.recipe_name }}</span>
-                </span>
+                </ItemIcon>
               </td>
               <td class="num">{{ Math.round(s.crafts) }}</td>
               <td class="num money"><Money :value="s.net" neg-as-earn /></td>
@@ -102,10 +111,9 @@
           <tbody>
             <tr v-for="m in detail.materials" :key="m.item_id">
               <td>
-                <span class="flex" style="gap: 6px">
-                  <ItemIcon :icon="m.icon" :name="m.name" :size="22" :item-id="m.item_id" />
+                <ItemIcon :icon="m.icon" :name="m.name" :size="22" :item-id="m.item_id">
                   <span>{{ m.name }}</span>
-                </span>
+                </ItemIcon>
                 <span v-if="m.kind === 'design'" class="tag design">设计图</span>
               </td><td class="num">{{ Math.round(m.qty) }}</td>
               <td class="num money"><Money v-if="m.cost !== null" :value="m.cost" /><span v-else>—</span></td>
@@ -119,7 +127,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { RouterLink, useRouter } from "vue-router";
 import { api } from "@/api/client";
 import FactionIcon from "@/components/FactionIcon.vue";
 import ItemIcon from "@/components/ItemIcon.vue";
@@ -135,6 +143,26 @@ const profFilter = ref("");
 const onlyMyServer = ref(false);
 const detail = ref<RouteDetail | null>(null);
 const recalc = ref<CalcResult | null>(null);
+/** 刚复制过的分享码（用于按钮文字反馈） */
+const copied = ref("");
+
+async function copyLink(code: string) {
+  const url = `${location.origin}/r/${code}`;
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch {
+    const ta = document.createElement("textarea");
+    ta.value = url;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+  }
+  copied.value = code;
+  window.setTimeout(() => (copied.value = ""), 1800);
+}
 
 onMounted(async () => {
   professions.value = await api.listProfessions();

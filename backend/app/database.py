@@ -58,6 +58,8 @@ _EXTRA_COLUMNS: list[tuple[str, str, str]] = [
     ("recipes", "vendor_favor", "INTEGER"),
     # 游戏内 tooltip 全文（JSON 字符串数组），悬停信息卡渲染用
     ("items", "tooltip", "TEXT"),
+    # 保存路线时的材料清单快照（分享页直接展示采购清单）
+    ("saved_routes", "materials", "TEXT"),
 ]
 
 

@@ -12,7 +12,7 @@ from ..config import get_settings
 from ..database import get_db
 from ..models import Item, PriceRecord
 from ..schemas import ItemDetailOut
-from ..services.calc import effective_prices
+from ..services.calc import latest_price_records, price_age_hours
 from ..services.importer import normalize_name
 
 router = APIRouter(prefix="/items", tags=["items"])
@@ -62,9 +62,13 @@ def item_detail(item_id: int, server_id: int | None = Query(default=None), db: S
         raise HTTPException(404, "物品不存在")
     effective_ah: int | None = None
     record_count = 0
+    price_updated_at = None
+    age_hours: float | None = None
     if server_id:
-        prices = effective_prices(db, server_id, "latest", get_settings().median_window_days)
-        effective_ah = prices.get(item_id)
+        records = latest_price_records(db, server_id)
+        price_updated_at = records[item_id][1] if item_id in records else None
+        effective_ah = records[item_id][0] if item_id in records else None
+        age_hours = price_age_hours(price_updated_at)
         record_count = (
             db.execute(
                 select(func.count()).select_from(PriceRecord).where(
@@ -73,6 +77,7 @@ def item_detail(item_id: int, server_id: int | None = Query(default=None), db: S
             ).scalar()
             or 0
         )
+    valid_hours = get_settings().price_valid_hours
     return ItemDetailOut(
         item_id=item.id,
         name=item.name,
@@ -85,5 +90,9 @@ def item_detail(item_id: int, server_id: int | None = Query(default=None), db: S
         vendor_price=item.vendor_price,
         effective_ah=effective_ah,
         record_count=record_count,
+        price_updated_at=price_updated_at,
+        price_age_hours=age_hours,
+        price_stale=bool(age_hours is not None and age_hours > valid_hours),
+        price_valid_hours=valid_hours,
         tooltip=_tooltip_lines(item.tooltip),
     )

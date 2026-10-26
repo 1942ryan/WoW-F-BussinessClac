@@ -203,6 +203,8 @@ class SavedRoute(Base):
     prob_green: Mapped[float | None] = mapped_column(Float, nullable=True)
     steps: Mapped[str] = mapped_column(Text, default="[]")  # JSON 快照
     totals: Mapped[str] = mapped_column(Text, default="{}")  # JSON 快照
+    # 材料清单快照（分享页直接展示，老路线没有这一列时按当时价格重算兜底）
+    materials: Mapped[str | None] = mapped_column(Text)
     is_public: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     share_code: Mapped[str] = mapped_column(String(16), unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

@@ -29,7 +29,14 @@ from ..schemas import (
     WatchlistItemOut,
     WatchlistOut,
 )
-from ..services.calc import ah_net_of, effective_prices, fmt_copper, is_limited_vendor
+from ..services.calc import (
+    ah_net_of,
+    effective_prices,
+    fmt_copper,
+    is_limited_vendor,
+    pick_revenue,
+)
+from ..services.cooldowns import has_cooldown
 
 router = APIRouter(prefix="/professions", tags=["professions"])
 
@@ -271,17 +278,19 @@ def list_recipes(
         disp = disp_overrides.get(r.id) or disposition
         product_npc_price: int | None = None
         product_ah_price: int | None = None
+        product_ah_net: int | None = None
+        npc_better = False
         if price_ok and r.product_item_id:
             prod_item = items[r.product_item_id]
             product_npc_price = (prod_item.vendor_price or 0) * r.product_qty
             ah_price = prices.get(r.product_item_id)
             product_ah_price = ah_price * r.product_qty if ah_price is not None else None
+            if product_ah_price is not None:
+                product_ah_net = ah_net_of(product_ah_price, ah_cut_rate)
             if disp == "sell_ah":
-                # 与路线计算同口径：拍卖行收入按扣完 5% 手续费的到手价
-                revenue = (
-                    ah_net_of(product_ah_price, ah_cut_rate)
-                    if product_ah_price is not None
-                    else product_npc_price
+                # 与路线计算同口径：拍卖行到手价 vs 卖店价取高（无 AH 价则直接用卖店价）
+                revenue, _, _, npc_better = pick_revenue(
+                    product_ah_price, prod_item.vendor_price, r.product_qty, ah_cut_rate
                 )
             elif disp == "sell_npc":
                 revenue = product_npc_price
@@ -310,25 +319,25 @@ def list_recipes(
                     lines.append(f"拍卖行：{fmt_copper(ah)}")
                 elif r.vendor_favor:
                     # 营地图纸在拍卖行买不到，只能去营地换青睐
-                    lines.append("拍卖行：无报价（营地图纸买不到，只能去营地换青睐）")
+                    lines.append("拍卖行：无报价（营地专属，只能去营地换）")
                 else:
                     lines.append("拍卖行：暂无报价（可能靠掉落或向玩家收购）")
                 if src_item and src_item.vendor_price:
                     lines.append(f"卖店：{fmt_copper(src_item.vendor_price)}")
             # 图纸出处：哪个商人卖 / 哪儿掉 / 开什么箱子（官方库没收录时留空）
-            if r.source_note:
+            camp_recipe = bool(r.vendor_favor and camp)
+            if r.source_note and not (
+                camp_recipe and r.source_note.startswith("贸易营地")
+            ):
                 lines.append(f"出处：{r.source_note}")
-            # 贸易营地专属图纸：需要「商人青睐」而不是声望
-            if r.vendor_favor and camp:
-                lines.append(
-                    f"商人青睐：{r.vendor_favor} 点"
-                    f"（{camp.camp} · {camp.npc}，{camp.zone} {camp.coord}）"
-                )
-                lines.append(
-                    f"获得青睐：上交装满的板条箱给{camp.crate_npc or '营地NPC'}"
-                    f"（每箱 5–20 点，箱子和材料要自己准备）"
-                )
-                lines.append("提示：营地配方没有声望要求，两阵营配方和价格完全相同")
+            if camp_recipe:
+                # 营地图纸：只留当前服务器阵营那一段（两阵营的清单完全一样，
+                # 全列出来会把浮层撑得很臃肿，用户明确要求只保留所选阵营）
+                lines.append(f"商人青睐：{r.vendor_favor} 点 · {camp.camp}（{camp.npc}）")
+                tail = f"{camp.zone} {camp.coord}".strip()
+                if camp.crate_npc:
+                    tail += f" · 上交板条箱给{camp.crate_npc}（每箱 5–20 点）"
+                lines.append(tail)
             source_detail = "\n".join(lines)
 
         out.append(
@@ -353,12 +362,15 @@ def list_recipes(
                 net_cost=(mat_cost - revenue) if (price_ok and revenue is not None) else None,
                 product_npc_price=product_npc_price,
                 product_ah_price=product_ah_price,
+                product_ah_net=product_ah_net,
                 # 卖拍卖行但查不到 AH 价 → 收入按卖店价估算（冷门信号，由用户决定是否屏蔽）
                 revenue_fallback=(
                     disp == "sell_ah"
                     and product_ah_price is None
                     and (product_npc_price or 0) > 0
                 ),
+                revenue_npc_better=bool(disp == "sell_ah" and npc_better),
+                has_cooldown=has_cooldown(r.product_name, r.product_item_id),
                 source_detail=source_detail,
                 vendor_favor=r.vendor_favor,
                 vendor_camp=camp if r.vendor_favor else None,

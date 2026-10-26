@@ -5,6 +5,7 @@
       <p class="muted" style="margin-top: 0">
         按专业生成该专业冲级所需的全部物品（材料 / 成品 / 设计图）。
         在游戏内 AUC 的关注清单导入里粘贴下面的文本，再按清单导出价格，回到本工具导入即可。
+        <RouterLink to="/guide" @click="$emit('close')">不知道怎么做？看图文教程 →</RouterLink>
       </p>
 
       <div class="flex flex-wrap" style="gap: 12px; align-items: flex-end">
@@ -54,6 +55,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import { RouterLink } from "vue-router";
 import { api } from "@/api/client";
 import ItemIcon from "@/components/ItemIcon.vue";
 import type { Profession, Watchlist } from "@/types";
